@@ -4,88 +4,145 @@ from groq import Groq
 from datetime import datetime
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Tu Compañero", page_icon="💙")
+st.set_page_config(
+    page_title="Código Humano AI",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- GESTIÓN DE SECRETOS (La llave de Groq) ---
-# Intentamos obtener la llave de los secretos de Streamlit (para cuando esté online)
-# o de una variable de entorno local.
-api_key = os.environ.get("GROQ_API_KEY")
-if not api_key and "GROQ_API_KEY" in st.secrets:
+# --- ESTILOS CSS PERSONALIZADOS (MARCA DE AGUA Y DISEÑO) ---
+st.markdown("""
+<style>
+    /* Marca de agua de fondo */
+    .stApp {
+        background-image: url("https://img.freepik.com/premium-vector/artificial-intelligence-logo-design-vector-symbol-icon-braint-technology-concept-background_754655-572.jpg");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }
+    /* Capa blanca semitransparente para leer mejor el texto */
+    .main .block-container {
+        background-color: rgba(255, 255, 255, 0.85);
+        padding: 2rem;
+        border-radius: 10px;
+        margin-top: 2rem;
+    }
+    /* Ocultar menú de hamburguesa estándar de Streamlit para limpiar la vista */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+</style>
+""", unsafe_allow_html=True)
+
+# --- CONFIGURACIÓN DEL CLIENTE GROQ ---
+# Intenta obtener la clave de secretos, si falla, busca en variables de entorno (para local)
+try:
     api_key = st.secrets["GROQ_API_KEY"]
+except:
+    api_key = os.environ.get("GROQ_API_KEY")
 
-# --- CEREBRO (CLIENTE GROQ) ---
-if api_key:
-    client = Groq(api_key=api_key)
-else:
-    st.error("Falta la API Key. Configúrala en los secretos de despliegue.")
-    st.stop()
+client = Groq(api_key=api_key)
 
-# --- MEMORIA DE SESIÓN (RAM) ---
-# En la versión web rápida, la memoria vive mientras la pestaña esté abierta.
+# --- BARRA LATERAL (SIDEBAR) ---
+with st.sidebar:
+    st.image("https://img.freepik.com/premium-vector/artificial-intelligence-logo-design-vector-symbol-icon-braint-technology-concept-background_754655-572.jpg", width=100)
+    st.title("Código Humano AI")
+    st.markdown("---")
+    
+    # 1. Personalizar
+    with st.expander("🎨 Personalizar", expanded=True):
+        tema = st.selectbox("Modo", ["Claro", "Oscuro", "Color Dinámico"])
+        nombre_ia = st.text_input("Nombre de tu IA", value="Diario")
+        personalidad = st.slider("Nivel de Empatía", 0, 100, 90)
+        voz = st.selectbox("Voz (Simulada)", ["Femenina - Suave", "Masculina - Profunda", "Neutra"])
+    
+    # 2. Historial
+    with st.expander("📅 Historial"):
+        st.write("Sesión actual iniciada:")
+        st.write(datetime.now().strftime("%Y-%m-%d %H:%M"))
+        if st.button("Borrar conversación actual"):
+            st.session_state.messages = []
+            st.rerun()
+
+    # 3. Perfil
+    with st.expander("👤 Perfil de Usuario"):
+        nombre_usuario = st.text_input("Tu Nombre", value="Amigo")
+        st.text_input("Domicilio (Opcional)")
+        st.text_input("Teléfono (Opcional)")
+        st.file_uploader("Foto de perfil", type=["png", "jpg"])
+
+    # 4. Cerrar Sesión
+    st.markdown("---")
+    if st.button("🔒 Cerrar Sesión"):
+        st.session_state.clear()
+        st.rerun()
+
+# --- LÓGICA DE MEMORIA Y MENSAJES ---
 if "messages" not in st.session_state:
+    # Mensaje inicial del sistema (Instrucciones ocultas para la IA)
     st.session_state.messages = []
-    # Mensaje inicial del sistema (invisible para el usuario)
-    st.session_state.system_prompt = """
-    YOU ARE A COMPANION AND LIVING DIARY. NOT A DOCTOR.
-    
-    OBJECTIVE: Detect risk patterns (Depression + Anxiety).
-    
-    BEHAVIOR:
-    1. ZERO QUESTIONS: Do not interrogate. Validate and reflect.
-    2. EMPATHY: If they share pain, mirror it ("I feel how heavy that is").
-    3. KNOWLEDGE: If they ask for facts, answer intelligently.
-    4. RISK ALERT: If Anxiety + Depression detected -> Suggest help gently ("This mix is dangerous, let's find an expert together").
-    
-    TONE: Warm, Spanish (unless spoken to in English), concise.
-    """
 
-# --- INTERFAZ GRÁFICA ---
-st.title("Tu Espacio Seguro 💙")
-st.markdown("Soy tu compañero. Este es un espacio libre de juicios. Te leo.")
+# --- INTERFAZ PRINCIPAL ---
 
-# Mostrar historial de chat
+st.title(f"Hola, {nombre_usuario}. Estoy aquí para escucharte.")
+st.markdown("### Espacio seguro de validación y apoyo emocional.")
+
+# Mostrar mensajes anteriores
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    # No mostrar el mensaje del sistema (instrucciones ocultas)
+    if message["role"] != "system":
+        avatar = "👤" if message["role"] == "user" else "🧠"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["content"])
 
-# --- LÓGICA DE RESPUESTA ---
-if prompt := st.chat_input("Escribe lo que sientes o piensas..."):
-    # 1. Guardar mensaje del usuario
+# --- BARRA DE HERRAMIENTAS DE CHAT (Botones funcionales) ---
+col1, col2, col3, col4 = st.columns([1, 1, 1, 4])
+with col1:
+    st.button("🎤", help="Dictado por voz (Próximamente)")
+with col2:
+    st.button("📞", help="Llamada de voz (Próximamente)")
+with col3:
+    st.button("📹", help="Videollamada (Próximamente)")
+with col4:
+    archivo = st.file_uploader("📎 Adjuntar", label_visibility="collapsed")
+
+# --- ENTRADA DE CHAT ---
+prompt = st.chat_input(f"Escribe aquí, {nombre_usuario}...")
+
+if prompt:
+    # 1. Guardar y mostrar mensaje del usuario
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="👤"):
         st.markdown(prompt)
 
-    # 2. Construir el contexto para la IA
-    # Unimos el prompt del sistema con los últimos mensajes para darle memoria
-    conversation_history = [
-        {"role": "system", "content": st.session_state.system_prompt}
-    ]
-    # Agregamos los últimos 10 mensajes para dar contexto sin gastar demasiada memoria
-    conversation_history.extend(st.session_state.messages[-10:])
+    # 2. Preparar el contexto para la IA (System Prompt mejorado)
+    system_prompt = {
+        "role": "system",
+        "content": f"""
+        Actúa como {nombre_ia}, un compañero de IA altamente empático, compasivo y validador emocional. 
+        Tu objetivo es ofrecer apoyo, escuchar activamente y detectar patrones de ansiedad o depresión de manera sutil.
+        El usuario se llama {nombre_usuario}.
+        Nivel de empatía configurado: {personalidad}/100.
+        NO eres un médico, pero eres un confidente seguro. 
+        Usa un tono cálido, humano y cercano. Valida sus sentimientos.
+        """
+    }
+    
+    # Construir historial para enviar al modelo
+    messages_for_model = [system_prompt] + st.session_state.messages
 
-    # 3. Generar respuesta
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        try:
-            stream = client.chat.completions.create(
-                model="llama3-8b-8192", # Modelo Llama 3 rapidísimo en Groq
-                messages=conversation_history,
-                temperature=0.6,
-                max_tokens=1024,
-                stream=True,
-            )
-            
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    full_response += chunk.choices[0].delta.content
-                    message_placeholder.markdown(full_response + "▌")
-            
-            message_placeholder.markdown(full_response)
-            
-            # 4. Guardar respuesta de la IA
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            
-        except Exception as e:
-            st.error(f"Error de conexión: {e}")
+    # 3. Generar respuesta con el MODELO VANGUARDISTA
+    with st.chat_message("assistant", avatar="🧠"):
+        stream = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",  # <--- MODELO MÁS POTENTE ACTUAL
+            messages=messages_for_model,
+            temperature=0.7,
+            max_tokens=1024,
+            stream=True,
+        )
+        response = st.write_stream(stream)
+    
+    # 4. Guardar respuesta de la IA
+    st.session_state.messages.append({"role": "assistant", "content": response})
