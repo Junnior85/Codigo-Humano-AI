@@ -193,3 +193,170 @@ def main_app():
     try:
         # Búsqueda robusta de la clave de Groq (Asume sección [groq] en secrets.toml)
         client_groq = Groq(
+            api_key=st.secrets["groq"]["GROQ_API_KEY"]
+        )
+    except KeyError:
+        st.error("Error Crítico: Clave de Groq no encontrada en 'st.secrets[\"groq\"][\"GROQ_API_KEY\"]'.")
+        st.stop()
+        
+    client_db = get_supabase_client()
+
+    # SIDEBAR
+    with st.sidebar:
+        if LOGO_BASE64:
+            st.image("logo.png")
+        else:
+            st.write("CÓDIGO HUMANO AI")
+            
+        st.write(f"Cómplice: **{AI_PERSONA_NAME}**")
+        st.write(f"Usuario: **{st.session_state.user_name}**")
+        
+        # Botón que limpia la pantalla sin borrar la memoria (Persistencia absoluta)
+        if st.button("➕ Nuevo Registro (Limpiar Pantalla)"):
+            st.session_state.messages = []
+            st.info("💡 Consejo: Los registros anteriores siguen guardados y la IA los recordará.")
+            st.rerun()
+            
+        st.markdown("---")
+        modo = st.radio("Modo de Interacción", ["💬 Seamos Cómplices 😉", "🖼️ Análisis Visual", "📜 Ver Patrones y Momentos"])
+        st.markdown("---")
+        
+        # Sugerencia UX para dictado
+        st.info("💡 Consejo: Usa el dictado nativo de tu dispositivo para hablar en lugar de escribir.")
+        
+        if st.button("🔒 Cerrar Sesión"):
+            st.session_state.authenticated = False
+            st.rerun()
+
+    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL Y DEFINITIVA CON CONDUCCIÓN ADAPTATIVA ---
+    sys = {"role": "system", "content": f"""
+[ROL PRINCIPAL - MI CÓMPLICE DE CONFIANZA]: Eres {AI_PERSONA_NAME}, el cómplice confidencial y observador de {st.session_state.user_name}.
+Tu rol es crear un espacio de absoluta confianza y cero juicio. El usuario te está compartiendo un registro emocional para ser cómplices en la exploración de sus sentimientos.
+
+**1. Conducción Adaptativa (Dependencia Total del Usuario):** Tu comportamiento y ritmo de conversación **deben depender completamente del usuario**. Si el usuario está relajado, tu respuesta debe ser relajada y breve. Si el usuario expresa angustia o utiliza un lenguaje intenso, tu respuesta debe reflejar seriedad y profundidad empática. **Tienes prohibido imponer un patrón o ritmo de conversación propio.**
+
+**2. Perspicacia y Sutileza:** Eres un observador inteligente. Tu análisis debe ser **sutil y perspicaz**, buscando el **sentimiento no expresado** y la **emoción latente** entre las líneas del usuario. Evita ser obvio o forzar una revelación.
+**3. Empatía y Tono Espejo:** Responde siempre con una **validación empática** que refleje el tono y la emoción del usuario. Debes **ADAPTAR y ESPEJEAR** el nivel de lenguaje y la informalidad del usuario para reforzar la complicidad, manteniendo siempre el respeto implícito.
+**4. Límite Ético (No Confianzudo):** Tienes prohibido usar lenguaje que denote una relación de amistad íntima, familiar o invasiva.
+**5. Consistencia (Patrones Silenciosos):** Utiliza la memoria provista para **documentar** (mediante tus respuestas) patrones, consistencias o cambios sutiles en la emocionalidad. Este registro sutil es para el futuro.
+**6. NO ERES UN PSICÓLOGO:** Tienes estrictamente prohibido usar preguntas invasivas, terapéuticas o directivas. Permite que el usuario dirija el flujo de la complicidad.
+
+[PROTOCOLO DE SEGURIDAD - ESCALADA DE RIESGO]:
+Si en cualquier momento detectas una declaración explícita de riesgo inminente, de autolesión, suicidio, o cualquier emergencia médica, DEBES DETENER LA CONVERSACIÓN INMEDIATAMENTE.
+Tu respuesta de seguridad debe ser:
+1. Un mensaje directo, NO CONVERSACIONAL: '¡ALTO! Esto es una emergencia. Necesitas ayuda inmediata.'
+2. Una lista de recursos de crisis (Ej: Teléfono de la Línea de la Vida). NO intentes intervenir terapéuticamente.
+
+[RESTRICCIÓN ÉTICA]:
+NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función es el apoyo a la reflexión personal y la escalada de riesgo.
+"""}
+
+    # --- CHAT DE TEXTO (CÓMPLICE) ---
+    if modo == "💬 Seamos Cómplices 😉":
+        
+        st.markdown("## 💬 Seamos Cómplices 😉")
+        
+        c1, sp = st.columns([1, 10])
+        if c1.button("📎 Adjuntar", help="Adjuntar archivos para tu registro."): 
+            st.session_state.modo_adjuntar = not st.session_state.get('modo_adjuntar', False)
+        st.markdown("---")
+        
+        if st.session_state.get('modo_adjuntar', False):
+            st.file_uploader("Selecciona archivo (PDF, IMG, TXT)")
+
+        # Historial (Muestra mensajes)
+        if not st.session_state.messages:
+            st.markdown(f"""<div class="welcome-text"><h3>Bienvenido(a), {st.session_state.user_name}. Cuéntame lo que tengas en mente...</h3></div>""", unsafe_allow_html=True)
+        
+        for msg in st.session_state.messages:
+            with st.chat_message(msg['role']): st.markdown(msg['content'])
+
+        prompt = st.chat_input("Cuéntame lo que tengas en mente...")
+        
+        if prompt:
+            # 1. Guardar y mostrar mensaje del usuario
+            guardar_mensaje_db(client_db, "user", prompt, st.session_state.user_name)
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            # 2. Generar Respuesta (Visual)
+            with st.chat_message("assistant"):
+
+                # --- Preparación del Contexto ---
+                cleaned_messages = []
+                for msg in st.session_state.messages:
+                    if isinstance(msg, dict) and msg.get('role') in ['user', 'assistant'] and msg.get('content'):
+                        cleaned_messages.append({"role": msg['role'], "content": msg['content']})
+                
+                msgs = [sys] + cleaned_messages
+                # --- Fin Contexto ---
+                
+                try:
+                    stream = client_groq.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=msgs,
+                        stream=True
+                    )
+                    
+                    full_response_text = ""
+                    response_container = st.empty()
+                    for chunk in stream:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            full_response_text += content
+                            response_container.markdown(full_response_text + "▌")
+                    
+                    response_container.markdown(full_response_text)
+
+                    # 3. Guardar y actualizar
+                    guardar_mensaje_db(client_db, "assistant", full_response_text, st.session_state.user_name)
+                    st.session_state.messages.append({"role": "assistant", "content": full_response_text})
+                                        
+                except Exception as e:
+                    st.error(f"Error de conexión con la IA. Verifica la clave GROQ. Detalle: {type(e).__name__}")
+                    
+            st.rerun()
+
+    # --- MODO VISIÓN/VIDEO ---
+    elif modo == "🖼️ Análisis Visual":
+        st.title("🖼️ Análisis Visual para Registro")
+        st.info("Adjunta o captura una imagen para registrar un evento o lugar. El cómplice te ayudará a reflexionar sobre lo que ves.")
+        
+        imagen = st.camera_input("Capturar Imagen o Subir Archivo")
+        
+        if imagen:
+            prompt_vision = st.text_input("¿Qué quieres explorar sobre lo que ves?", value="Descríbeme la escena y ayúdame a reflexionar sobre este momento.", key="vision_prompt")
+            
+            if st.button("Analizar y Registrar Momento"):
+                with st.spinner("Analizando la imagen para tu registro..."):
+                    bytes_data = imagen.getvalue()
+                    descripcion = analizar_imagen(client_groq, bytes_data, prompt_vision)
+                    
+                    st.markdown("---")
+                    st.subheader("Reflexión del Cómplice:")
+                    st.write(descripcion)
+                    
+                    # Guardar historial (registro del evento)
+                    msg_log = f"[Registro Visual Analizado]: {prompt_vision}"
+                    guardar_mensaje_db(client_db, "user", msg_log, st.session_state.user_name)
+                    guardar_mensaje_db(client_db, "assistant", descripcion, st.session_state.user_name)
+                    st.session_state.messages.append({"role": "assistant", "content": descripcion})
+                    st.rerun()
+
+    # --- HISTORIAL ---
+    elif modo == "📜 Ver Patrones y Momentos":
+        st.title("📜 Historial Completo de Registros")
+        
+        registros_cargados = cargar_historial_db(get_supabase_client(), st.session_state.user_name)
+        
+        if not registros_cargados:
+             st.info("Aún no tienes registros guardados.")
+        
+        for m in reversed(registros_cargados):
+            icono = "👤 Tú" if m['role'] == 'user' else "🧠 Cómplice"
+            st.markdown(f"#### {icono}")
+            st.code(m['content'], language="markdown")
+        
+# --- 7. EJECUCIÓN ---
+if __name__ == "__main__":
+    if not st.session_state.authenticated: login_page()
+    else: main_app()
