@@ -1,5 +1,5 @@
-streamlit
-groq
-edge-tts
-asyncio
-supabase-postgrest-py  # <-- ¡Asegúrate de que esta línea esté presente!
+# En requirements.txt:
+# Reemplazar:
+# supabase-postgrest-py
+# Por:
+supabase
