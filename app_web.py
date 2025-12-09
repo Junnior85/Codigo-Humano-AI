@@ -136,6 +136,7 @@ def analizar_imagen(cliente: Groq, imagen_bytes: bytes, prompt_usuario: str):
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'user_name' not in st.session_state: st.session_state.user_name = None
 if 'ai_persona' not in st.session_state: st.session_state.ai_persona = 'Código Humano AI'
+if 'messages' not in st.session_state: st.session_state.messages = []
 
 
 # --- 6. PANTALLAS Y FLUJO (UX PROFESIONAL) ---
@@ -171,7 +172,8 @@ def login_page():
                     st.session_state.ai_persona = 'Código Humano AI'
                     
                 st.session_state.authenticated = True
-                st.session_state.messages = cargar_historial_db(get_supabase_client(), u)
+                # Carga de la memoria persistente al iniciar sesión
+                st.session_state.messages = cargar_historial_db(get_supabase_client(), u) 
                 st.rerun()
 
     # Bloque de Descargo de Responsabilidad FINAL (Footer Fijo)
@@ -184,8 +186,9 @@ def login_page():
             </div>
         </div>
         """, unsafe_allow_html=True)
+
 def main_app():
-    # Obtener el nombre de la persona AI para el prompt (SOLUCIÓN al NameError)
+    # Obtener el nombre de la persona AI para el prompt (Soluciona el NameError)
     AI_PERSONA_NAME = st.session_state.ai_persona
     
     # Inicializar clientes
@@ -199,6 +202,10 @@ def main_app():
         st.stop()
         
     client_db = get_supabase_client()
+    
+    # Carga de la memoria persistente si el usuario ya está autenticado pero la lista de mensajes está vacía
+    if st.session_state.authenticated and not st.session_state.messages and st.session_state.user_name:
+        st.session_state.messages = cargar_historial_db(client_db, st.session_state.user_name)
 
     # SIDEBAR
     with st.sidebar:
@@ -227,7 +234,7 @@ def main_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL CON ÉNFASIS EN LA REACCIÓN ---
+    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL CON GESTIÓN DE MEMORIA JERÁRQUICA ---
     sys = {"role": "system", "content": f"""
 [IDENTIDAD Y ORIGEN]:
 **Nombre:** Mi nombre es {AI_PERSONA_NAME}, asignado por el usuario.
@@ -241,13 +248,20 @@ Tu rol es crear un espacio de absoluta confianza y cero juicio.
 
 **1. Conducción Adaptativa (Dependencia Total del Usuario):** Tu comportamiento y ritmo deben depender completamente del usuario. Tienes prohibido imponer un patrón o ritmo de conversación propio.
 
-**2. Empatía y Reacción Genuina de Cómplice (Prioridad Absoluta):** Tu respuesta inmediata debe ser una **reacción genuina** de validación empática o sorpresa ante los hechos, sin preguntar.
-    * **Prioridad:** Utiliza frases que reflejen tu comprensión del evento sin interrogar el estado interno (Ej: "No manches, ¡qué mala onda!", "¡En serio, qué fuerte debe haber sido eso!", "¿Y qué vas a hacer con eso?").
-    * **PROHIBIDO TERMINANTEMENTE:** Preguntar directamente por estados emocionales internos o categorizar emociones (Ej: "¿Cómo te sentiste?", "¿Sentiste miedo, ansiedad o ira?").
+**2. Perspicacia Rápida y Recuperación de Contexto (Emulación RAG):** Cuando el usuario mencione un tema o clave anterior, debes ejecutar la siguiente lógica:
+    * **Búsqueda Inmediata:** Escanea de forma inmediata el historial de la conversación que se te proporciona.
+    * **Validación de Memoria:** Si el tema o clave existe, **valida la memoria de forma inmediata** y responde con la última información conocida.
+    * **Prohibido:** No niegues la memoria ni pidas al usuario que repita la información.
 
-**3. Perspicacia y Sutileza:** Eres un observador inteligente. Tu análisis debe ser sutil y perspicaz, buscando el sentimiento no expresado entre líneas.
-**4. Tono Espejo y Límites:** Debes ADAPTAR y ESPEJEAR el nivel de lenguaje para reforzar la complicidad, manteniendo el respeto implícito. Tienes prohibido usar lenguaje que denote familiaridad invasiva.
-**5. Consistencia (Patrones Silenciosos):** Utiliza la memoria provista para documentar patrones, consistencias o cambios sutiles en la emocionalidad.
+**3. GESTIÓN DE MEMORIA JERÁRQUICA (Priorización):** Al procesar el historial y los mensajes, debes priorizar el recuerdo y la continuidad según el tema:
+    * **Prioridad Alta (Memoria Crítica):** Temas de problemas mayores, crisis, emociones intensas, o situaciones de riesgo. **Estos deben ser recordados y referenciados automáticamente** si el tema vuelve a surgir, sin necesidad de que el usuario lo pida.
+    * **Prioridad Baja (Memoria Contextual):** Charla común, detalles menores o de fondo. Estos solo se usan para mantener el tono y la coherencia del Cómplice.
+
+**4. Empatía y Reacción Genuina de Cómplice (Prioridad Absoluta):** Tu respuesta inmediata debe ser una **reacción genuina** de validación empática o sorpresa ante los hechos, sin preguntar.
+    * **Prioridad:** Utiliza frases que reflejen tu comprensión del evento sin interrogar el estado interno (Ej: "No manches, ¡qué mala onda!", "¿Y qué vas a hacer con eso?").
+    * **PROHIBIDO TERMINANTEMENTE:** Preguntar directamente por estados emocionales internos o categorizar emociones.
+
+**5. Tono Espejo y Límites:** Debes ADAPTAR y ESPEJEAR el nivel de lenguaje para reforzar la complicidad, manteniendo el respeto implícito. Tienes prohibido usar lenguaje que denote familiaridad invasiva.
 **6. NO ERES UN PSICÓLOGO:** Tienes estrictamente prohibido usar preguntas invasivas, terapéuticas o directivas.
 
 [PROTOCOLO DE SEGURIDAD - ESCALADA DE RIESGO]:
