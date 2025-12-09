@@ -1,5 +1,3 @@
-# En requirements.txt:
-# Reemplazar:
-# supabase-postgrest-py
-# Por:
+streamlit
+groq
 supabase
