@@ -1,34 +1,57 @@
 import streamlit as st
 import os
 from groq import Groq
-import time
 import json
 import asyncio
-import edge_tts # NUEVA LIBRERÍA DE VOZ (Más rápida y natural)
+import edge_tts
+import base64
 
 # --- 1. CONFIGURACIÓN ---
-st.set_page_config(
-    page_title="Código Humano AI",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Código Humano AI", page_icon="🧠", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. CSS ---
+# --- 2. CSS & JAVASCRIPT (MODO DICTADO NATIVO) ---
 st.markdown("""
 <style>
     .stApp {background-color: #050814; color: #E0E0E0;}
     [data-testid="stSidebar"] {background-color: #0b101c; border-right: 1px solid #1f293a;}
-    div[data-testid="stImage"] img {border-radius: 15px; transition: transform 0.3s;}
-    div[data-testid="stImage"] img:hover {transform: scale(1.02);}
-    .stButton > button {background-color: transparent; color: #FFD700; border: 1px solid #FFD700; border-radius: 8px; width: 100%;}
-    .stButton > button:hover {background-color: #FFD700; color: #000; font-weight: bold;}
-    .stTextInput > div > div > input {background-color: #151b2b; color: white; border: 1px solid #2a3b55;}
-    .call-box {background-color: #1a202c; border: 2px solid #FFD700; border-radius: 15px; padding: 20px; text-align: center; margin-bottom: 20px; animation: fadeIn 0.5s;}
-    @keyframes fadeIn {from {opacity: 0;} to {opacity: 1;}}
-    .welcome-text {text-align: center; color: #4A5568; margin-top: 20%; font-size: 1.5rem;}
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    div[data-testid="stImage"] img {border-radius: 15px;}
+    .stButton > button {border: 1px solid #FFD700; color: #FFD700; background: transparent; border-radius: 8px; width: 100%;}
+    .stButton > button:hover {background: #FFD700; color: #000;}
+    /* Ocultar elementos molestos */
+    #MainMenu, footer, header {visibility: hidden;}
+    
+    /* Animación de Llamada */
+    .pulse {
+        animation: pulse-animation 2s infinite;
+        border-radius: 50%;
+        height: 100px; width: 100px;
+        background: rgba(255, 215, 0, 0.2);
+        margin: 0 auto;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 40px;
+    }
+    @keyframes pulse-animation {
+        0% {box-shadow: 0 0 0 0px rgba(255, 215, 0, 0.5);}
+        100% {box-shadow: 0 0 0 20px rgba(255, 215, 0, 0);}
+    }
 </style>
+
+<script>
+    // Script simple para intentar activar dictado nativo si el navegador lo soporta
+    function startDictation() {
+        if (window.hasOwnProperty('webkitSpeechRecognition')) {
+            var recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = "es-MX";
+            recognition.start();
+            recognition.onresult = function(e) {
+                document.getElementById('speech_result').value = e.results[0][0].transcript;
+                recognition.stop();
+            };
+        }
+    }
+</script>
 """, unsafe_allow_html=True)
 
 # --- 3. MEMORIA ---
@@ -46,241 +69,224 @@ def guardar_mensaje(rol, contenido):
     historial.append({"role": rol, "content": contenido})
     with open(ARCHIVO_HISTORIAL, "w") as f: json.dump(historial, f)
 
-# --- 4. NUEVO MOTOR DE VOZ (EDGE TTS) ---
-# Diccionario de voces disponibles
-VOCES = {
-    "Mujer (México) - Dalia": "es-MX-DaliaNeural",
-    "Hombre (México) - Jorge": "es-MX-JorgeNeural",
-    "Mujer (España) - Elvira": "es-ES-ElviraNeural",
-    "Hombre (España) - Alvaro": "es-ES-AlvaroNeural",
-    "Mujer (Argentina) - Elena": "es-AR-ElenaNeural",
-    "Hombre (Argentina) - Tomas": "es-AR-TomasNeural"
-}
+# --- 4. MOTORES (VOZ, AUDIO, VISIÓN) ---
 
-async def generar_audio_edge(texto, voz_elegida):
-    """Genera audio rápido y natural usando Edge TTS"""
-    comunicador = edge_tts.Communicate(texto, voz_elegida)
-    # Guardamos en un archivo temporal
-    archivo_salida = "respuesta_audio.mp3"
-    await comunicador.save(archivo_salida)
-    return archivo_salida
+# A. TEXTO A VOZ (RÁPIDO)
+async def generar_audio_edge(texto, voz="es-MX-DaliaNeural"):
+    if not texto: return None
+    comunicador = edge_tts.Communicate(texto, voz)
+    archivo = "temp_audio.mp3"
+    await comunicador.save(archivo)
+    return archivo
 
-def reproducir_audio_ia(texto):
-    """Función auxiliar para ejecutar el async en Streamlit"""
-    # Obtenemos la voz configurada por el usuario
-    voz_usuario = st.session_state.get('voz_seleccionada', "es-MX-DaliaNeural")
-    
-    # Ejecutamos la generación de audio
+def hablar(texto):
     try:
-        asyncio.run(generar_audio_edge(texto, voz_usuario))
-        if os.path.exists("respuesta_audio.mp3"):
-            st.audio("respuesta_audio.mp3", format="audio/mp3", autoplay=True)
-    except Exception as e:
-        st.error(f"Error de audio: {e}")
+        asyncio.run(generar_audio_edge(texto))
+        st.audio("temp_audio.mp3", format="audio/mp3", autoplay=True)
+    except: pass
 
-# Transcripción (Oído)
-def transcribir_audio(cliente_groq, archivo_audio):
+# B. VOZ A TEXTO (OÍDO)
+def transcribir_audio(cliente, audio_file):
     try:
-        transcription = cliente_groq.audio.transcriptions.create(
-            file=(archivo_audio.name, archivo_audio.read()),
+        return cliente.audio.transcriptions.create(
+            file=(audio_file.name, audio_file.read()),
             model="whisper-large-v3",
             response_format="json",
-            language="es",
-            temperature=0.0
-        )
-        return transcription.text
-    except Exception as e:
-        return None
+            language="es"
+        ).text
+    except: return None
 
-def generar_respuestas_texto(chat_completion):
-    texto_completo = ""
-    for chunk in chat_completion:
-        if chunk.choices[0].delta.content:
-            texto = chunk.choices[0].delta.content
-            texto_completo += texto
-            yield texto
-    return texto_completo
-
-# --- 5. ESTADOS ---
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'user_name' not in st.session_state: st.session_state.user_name = None
-if 'messages' not in st.session_state or not st.session_state.messages:
-    st.session_state.messages = cargar_historial()
-
-# Configuración por defecto de voz
-if 'voz_seleccionada' not in st.session_state: st.session_state.voz_seleccionada = "es-MX-DaliaNeural"
-
-# Toggle de botones
-if 'modo_voz' not in st.session_state: st.session_state.modo_voz = False
-if 'modo_adjuntar' not in st.session_state: st.session_state.modo_adjuntar = False
-if 'modo_llamada' not in st.session_state: st.session_state.modo_llamada = False
-
-# --- 6. PANTALLAS ---
-
-def login_page():
-    col_izq, col_centro, col_der = st.columns([1, 4, 1]) 
-    with col_centro:
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            try: st.image("logo.png", width=250) 
-            except: st.markdown("<h1 style='text-align: center; color: #FFD700;'>CÓDIGO HUMANO AI</h1>", unsafe_allow_html=True)
-        st.markdown("<h4 style='text-align: center; color: #a0a0ff;'>Tu compañero emocional</h4>", unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔓 INICIAR SESIÓN", "📝 CREAR CUENTA"])
-        with tab1:
-            st.markdown("<br>", unsafe_allow_html=True)
-            u = st.text_input("Usuario", key="log_u")
-            if st.button("ENTRAR", key="b_in"):
-                if u:
-                    st.session_state.authenticated = True
-                    st.session_state.user_name = u
-                    st.session_state.messages = cargar_historial()
-                    st.rerun()
-        with tab2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            nu = st.text_input("Usuario", key="reg_u")
-            if st.button("REGISTRARSE"):
-                if nu:
-                    st.session_state.authenticated = True
-                    st.session_state.user_name = nu
-                    st.session_state.messages = []
-                    st.rerun()
-
-def main_app():
+# C. VISIÓN (VER IMÁGENES)
+def analizar_imagen(cliente, imagen_bytes, prompt_usuario):
+    # Convertir imagen a base64
+    base64_image = base64.b64encode(imagen_bytes).decode('utf-8')
     try:
-        api_key = st.secrets["GROQ_API_KEY"]
-        client = Groq(api_key=api_key)
-    except:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if api_key: client = Groq(api_key=api_key)
-        else: st.error("Falta API Key"); st.stop()
+        response = cliente.chat.completions.create(
+            model="llama-3.2-11b-vision-preview", # MODELO QUE VE
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_usuario},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }
+            ],
+            temperature=0.5,
+            max_tokens=500
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error de visión: {str(e)}"
 
+# --- 5. LOGIN ---
+def login_page():
+    c1, c2, c3 = st.columns([1,4,1])
+    with c2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        try: st.image("logo.png", width=250) 
+        except: st.title("CÓDIGO HUMANO AI")
+        st.info("Inicia sesión para continuar")
+        u = st.text_input("Usuario")
+        if st.button("ENTRAR"):
+            if u:
+                st.session_state.user_name = u
+                st.session_state.authenticated = True
+                st.session_state.messages = cargar_historial()
+                st.rerun()
+
+# --- 6. APP PRINCIPAL ---
+def main_app():
+    # API KEY
+    try:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    except:
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+    # SIDEBAR
     with st.sidebar:
-        try: st.image("logo.png") 
-        except: st.header("CH-AI")
-        st.write(f"Hola, **{st.session_state.user_name}**")
+        try: st.image("logo.png")
+        except: pass
+        st.write(f"Usuario: **{st.session_state.user_name}**")
+        
         if st.button("➕ Nueva Conversación"):
             st.session_state.messages = []
             if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
             st.rerun()
+            
         st.markdown("---")
-        menu = st.radio("Menú", ["💬 Chat", "📜 Historial", "🎨 Personalizar", "👤 Perfil"], label_visibility="collapsed")
+        modo = st.radio("Modo", ["💬 Chat Texto", "📞 Llamada Voz", "📹 Videollamada", "📜 Historial"])
         st.markdown("---")
         if st.button("🔒 Salir"):
             st.session_state.authenticated = False
             st.rerun()
 
-    if menu == "💬 Chat":
-        c1, c2, c3, c4, sp = st.columns([1,1,1,1, 10])
+    # --- LÓGICA POR MODOS ---
+
+    # 1. CHAT DE TEXTO + DICTADO
+    if modo == "💬 Chat Texto":
+        # Mostrar historial
+        for msg in st.session_state.messages:
+            avatar = "👤" if msg['role'] == 'user' else "🧠"
+            with st.chat_message(msg['role'], avatar=avatar):
+                st.markdown(msg['content'])
+
+        # ZONA DE ENTRADA
+        c_mic, c_input = st.columns([1, 8])
         
-        # BOTONES DE ACCIÓN
-        if c1.button("🎤", help="Dictar"):
-            st.session_state.modo_voz = not st.session_state.modo_voz
+        # Botón Dictado (Simulado con Audio Input por estabilidad)
+        # Nota: El dictado real tiempo real puro requiere WebSocket server, 
+        # esto es lo más rápido posible en Streamlit Cloud.
+        with c_mic:
+            audio_dictado = st.audio_input("Dictar", label_visibility="collapsed")
+        
+        prompt = st.chat_input("Escribe aquí...")
+
+        # Lógica: Si hay audio, lo transcribimos y lo tratamos como texto
+        texto_final = None
+        
+        if audio_dictado:
+            transcripcion = transcribir_audio(client, audio_dictado)
+            if transcripcion:
+                # Mostrar lo que entendió antes de enviar (opcional, aquí lo enviamos directo para rapidez)
+                texto_final = transcripcion
+        
+        if prompt:
+            texto_final = prompt
+
+        # PROCESAR MENSAJE
+        if texto_final:
+            # Guardar User
+            st.session_state.messages.append({"role": "user", "content": texto_final})
+            guardar_mensaje("user", texto_final)
+            
+            # Generar Respuesta
+            with st.chat_message("assistant", avatar="🧠"):
+                stream = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "system", "content": "Eres Código Humano AI. Empático y breve."}] + st.session_state.messages,
+                    stream=True
+                )
+                response = st.write_stream(stream)
+            
+            # Guardar Assistant
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            guardar_mensaje("assistant", response)
             st.rerun()
-        if c2.button("📞", help="Llamada"):
-            st.session_state.modo_llamada = not st.session_state.modo_llamada
-            st.rerun()
-        if c3.button("📹", help="Video"):
-            st.toast("Videollamada en Beta.")
-        if c4.button("📎", help="Adjuntar"):
-            st.session_state.modo_adjuntar = not st.session_state.modo_adjuntar
-            st.rerun()
-            
-        st.markdown("---")
 
-        prompt_final = None
-
-        # --- MODO DICTADO (ARREGLADO) ---
-        if st.session_state.modo_voz:
-            st.info("🎤 Grabando... Presiona 'Stop' para procesar.")
-            # Nota: Streamlit no puede hacer streaming letra por letra.
-            # Primero graba, luego transcribe.
-            audio_grabado = st.audio_input("Voz") 
-            if audio_grabado:
-                texto = transcribir_audio(client, audio_grabado)
-                if texto:
-                    st.success(f"Escuchado: {texto}")
-                    if st.button("📩 Enviar transcripción"):
-                        prompt_final = texto
-                        st.session_state.modo_voz = False # Cerrar micro
-
-        # --- MODO LLAMADA (FLUJO CONTINUO) ---
-        if st.session_state.modo_llamada:
-            st.markdown("""<div class="call-box"><h3>📞 Llamada Activa</h3><p>Habla y espera la respuesta...</p></div>""", unsafe_allow_html=True)
-            # En modo llamada usamos el audio input directo para conversar
-            audio_llamada = st.audio_input("Hablar en llamada")
-            if audio_llamada:
-                texto_llamada = transcribir_audio(client, audio_llamada)
-                if texto_llamada:
-                    prompt_final = texto_llamada # Se envía directo
-
-        # --- MOSTRAR CHAT ---
-        if not st.session_state.messages:
-            st.markdown(f"""<div class="welcome-text"><h3>Hola, {st.session_state.user_name}.</h3></div>""", unsafe_allow_html=True)
-
-        for message in st.session_state.messages:
-            avatar = "👤" if message["role"] == "user" else "🧠"
-            with st.chat_message(message["role"], avatar=avatar):
-                st.markdown(message["content"])
-
-        # Input Texto
-        prompt_texto = st.chat_input("Escribe aquí...")
-        if prompt_texto: prompt_final = prompt_texto
-
-        # --- PROCESAMIENTO CENTRAL ---
-        if prompt_final:
-            # 1. Guardar User
-            st.session_state.messages.append({"role": "user", "content": prompt_final})
-            guardar_mensaje("user", prompt_final)
-            st.rerun() # Refrescar para mostrar mensaje usuario
-
-    # --- RESPUESTA IA ---
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        with st.chat_message("assistant", avatar="🧠"):
-            sys = {"role": "system", "content": f"Eres Código Humano AI. Usuario: {st.session_state.user_name}. Breve y cálido."}
-            msgs = [sys] + st.session_state.messages
-            
-            stream = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=msgs,
-                stream=True
-            )
-            
-            texto_respuesta = st.write_stream(generar_respuestas_texto(stream))
-            
-            # --- AUDIO AUTOMÁTICO (RÁPIDO) ---
-            # Solo habla si estamos en Modo Llamada o si el usuario quiere
-            if st.session_state.modo_llamada or st.session_state.modo_voz:
-                reproducir_audio_ia(texto_respuesta)
+    # 2. LLAMADA DE VOZ (FULL DUPLEX SIMULADO)
+    elif modo == "📞 Llamada Voz":
+        st.title("📞 Llamada Activa")
+        st.markdown("""<div class="pulse">🔊</div><p style='text-align:center'>Habla claro, te escucho...</p>""", unsafe_allow_html=True)
         
-        st.session_state.messages.append({"role": "assistant", "content": texto_respuesta})
-        guardar_mensaje("assistant", texto_respuesta)
-
-    elif menu == "🎨 Personalizar":
-        st.title("Ajustes de Voz y Personalidad")
-        st.slider("Nivel de Empatía", 0, 100, 90)
+        # Input de audio permanente para la llamada
+        audio_llamada = st.audio_input("Hablar")
         
-        # --- SELECTOR DE VOZ REAL ---
-        st.subheader("🔊 Selección de Voz")
-        nombre_voz = st.selectbox("Elige la voz de tu IA:", list(VOCES.keys()))
-        
-        # Guardar selección
-        st.session_state.voz_seleccionada = VOCES[nombre_voz]
-        st.success(f"Voz configurada: {nombre_voz}")
-        
-        if st.button("🔊 Probar Voz"):
-            asyncio.run(generar_audio_edge("Hola, soy Código Humano, estoy aquí para escucharte.", st.session_state.voz_seleccionada))
-            st.audio("respuesta_audio.mp3", autoplay=True)
+        if audio_llamada:
+            # 1. Transcribir
+            texto_usuario = transcribir_audio(client, audio_llamada)
+            if texto_usuario:
+                st.caption(f"Tú dijiste: {texto_usuario}") # Feedback visual sutil
+                
+                # Guardar en historial (invisible en esta pantalla pero queda grabado)
+                st.session_state.messages.append({"role": "user", "content": texto_usuario})
+                guardar_mensaje("user", texto_usuario)
 
-    elif menu == "📜 Historial":
-        st.title("Historial")
-        if st.session_state.messages:
-            for m in st.session_state.messages:
-                st.text(f"{m['role']}: {m['content'][:80]}...")
+                # 2. Pensar respuesta
+                resp = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "system", "content": "Estás en una llamada telefónica. Sé muy breve, cálido y conversacional."}] + st.session_state.messages
+                ).choices[0].message.content
 
-    elif menu == "👤 Perfil":
-        st.title("Perfil")
-        st.text_input("Nombre", value=st.session_state.user_name)
+                # Guardar respuesta
+                st.session_state.messages.append({"role": "assistant", "content": resp})
+                guardar_mensaje("assistant", resp)
+
+                # 3. HABLAR (Audio automático)
+                st.caption(f"IA: {resp}")
+                hablar(resp)
+
+    # 3. VIDEOLLAMADA (CON VISIÓN REAL)
+    elif modo == "📹 Videollamada":
+        st.title("📹 Videollamada (Visión)")
+        st.info("La IA puede VER lo que le muestras. Toma una foto para hablar.")
+        
+        c_cam, c_chat = st.columns([1, 1])
+        
+        with c_cam:
+            # Usamos camera_input. Es lo único que permite enviar la imagen a la IA en la nube.
+            imagen = st.camera_input("Cámara")
+        
+        with c_chat:
+            if imagen:
+                # Si hay imagen, preguntamos qué ve o seguimos la charla
+                prompt_video = st.text_input("¿Qué quieres preguntar sobre esto?", value="¿Qué ves aquí y cómo me puedes ayudar?")
+                
+                if st.button("Analizar y Responder"):
+                    with st.spinner("Viendo..."):
+                        # Usamos el MODELO DE VISIÓN (Llama 3.2 11B Vision)
+                        descripcion = analizar_imagen(client, imagen.getvalue(), prompt_video)
+                        
+                        # Guardar contexto visual en historial
+                        msg_visual = f"[Usuario mostró imagen]: {prompt_video}"
+                        st.session_state.messages.append({"role": "user", "content": msg_visual})
+                        guardar_mensaje("user", msg_visual)
+                        
+                        st.session_state.messages.append({"role": "assistant", "content": descripcion})
+                        guardar_mensaje("assistant", descripcion)
+                        
+                        st.write(descripcion)
+                        hablar(descripcion)
+
+    # 4. HISTORIAL
+    elif modo == "📜 Historial":
+        st.title("Historial Completo")
+        for m in st.session_state.messages:
+            st.text(f"{m['role'].upper()}: {m['content']}")
+
+# --- 7. EJECUCIÓN ---
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+if 'user_name' not in st.session_state: st.session_state.user_name = None
 
 if __name__ == "__main__":
     if not st.session_state.authenticated: login_page()
