@@ -4,7 +4,6 @@ from groq import Groq
 import json
 from datetime import datetime
 import asyncio
-import edge_tts 
 import base64
 from supabase import create_client, Client # <-- Importamos el cliente Supabase
 
