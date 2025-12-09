@@ -161,7 +161,7 @@ def login_page():
 
 def main_app():
     # Inicializar clientes
-    client_groq = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    client_groq = Groq(api_key=st.secrets["groq"]["GROQ_API_KEY"])
     client_db = get_supabase_client()
 
     # SIDEBAR
