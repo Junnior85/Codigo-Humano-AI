@@ -3,8 +3,8 @@ import os
 from groq import Groq
 import time
 import json
-from gtts import gTTS # Librería para que la IA hable
-import io
+import asyncio
+import edge_tts # NUEVA LIBRERÍA DE VOZ (Más rápida y natural)
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(
@@ -31,7 +31,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. MEMORIA Y PERSISTENCIA ---
+# --- 3. MEMORIA ---
 ARCHIVO_HISTORIAL = "historial_chat.json"
 
 def cargar_historial():
@@ -46,31 +46,50 @@ def guardar_mensaje(rol, contenido):
     historial.append({"role": rol, "content": contenido})
     with open(ARCHIVO_HISTORIAL, "w") as f: json.dump(historial, f)
 
-# --- 4. FUNCIONES DE AUDIO (NUEVO MOTOR) ---
+# --- 4. NUEVO MOTOR DE VOZ (EDGE TTS) ---
+# Diccionario de voces disponibles
+VOCES = {
+    "Mujer (México) - Dalia": "es-MX-DaliaNeural",
+    "Hombre (México) - Jorge": "es-MX-JorgeNeural",
+    "Mujer (España) - Elvira": "es-ES-ElviraNeural",
+    "Hombre (España) - Alvaro": "es-ES-AlvaroNeural",
+    "Mujer (Argentina) - Elena": "es-AR-ElenaNeural",
+    "Hombre (Argentina) - Tomas": "es-AR-TomasNeural"
+}
 
+async def generar_audio_edge(texto, voz_elegida):
+    """Genera audio rápido y natural usando Edge TTS"""
+    comunicador = edge_tts.Communicate(texto, voz_elegida)
+    # Guardamos en un archivo temporal
+    archivo_salida = "respuesta_audio.mp3"
+    await comunicador.save(archivo_salida)
+    return archivo_salida
+
+def reproducir_audio_ia(texto):
+    """Función auxiliar para ejecutar el async en Streamlit"""
+    # Obtenemos la voz configurada por el usuario
+    voz_usuario = st.session_state.get('voz_seleccionada', "es-MX-DaliaNeural")
+    
+    # Ejecutamos la generación de audio
+    try:
+        asyncio.run(generar_audio_edge(texto, voz_usuario))
+        if os.path.exists("respuesta_audio.mp3"):
+            st.audio("respuesta_audio.mp3", format="audio/mp3", autoplay=True)
+    except Exception as e:
+        st.error(f"Error de audio: {e}")
+
+# Transcripción (Oído)
 def transcribir_audio(cliente_groq, archivo_audio):
-    """Usa el modelo Whisper de Groq para convertir voz a texto"""
     try:
         transcription = cliente_groq.audio.transcriptions.create(
             file=(archivo_audio.name, archivo_audio.read()),
-            model="whisper-large-v3", # Modelo de oído
+            model="whisper-large-v3",
             response_format="json",
             language="es",
             temperature=0.0
         )
         return transcription.text
     except Exception as e:
-        return f"Error al escuchar: {e}"
-
-def texto_a_voz(texto):
-    """Convierte la respuesta de texto a audio MP3 usando gTTS"""
-    try:
-        tts = gTTS(text=texto, lang='es')
-        audio_bytes = io.BytesIO()
-        tts.write_to_fp(audio_bytes)
-        audio_bytes.seek(0)
-        return audio_bytes
-    except:
         return None
 
 def generar_respuestas_texto(chat_completion):
@@ -88,7 +107,10 @@ if 'user_name' not in st.session_state: st.session_state.user_name = None
 if 'messages' not in st.session_state or not st.session_state.messages:
     st.session_state.messages = cargar_historial()
 
-# Estados de Botones
+# Configuración por defecto de voz
+if 'voz_seleccionada' not in st.session_state: st.session_state.voz_seleccionada = "es-MX-DaliaNeural"
+
+# Toggle de botones
 if 'modo_voz' not in st.session_state: st.session_state.modo_voz = False
 if 'modo_adjuntar' not in st.session_state: st.session_state.modo_adjuntar = False
 if 'modo_llamada' not in st.session_state: st.session_state.modo_llamada = False
@@ -108,7 +130,6 @@ def login_page():
         with tab1:
             st.markdown("<br>", unsafe_allow_html=True)
             u = st.text_input("Usuario", key="log_u")
-            p = st.text_input("Contraseña", type="password", key="log_p")
             if st.button("ENTRAR", key="b_in"):
                 if u:
                     st.session_state.authenticated = True
@@ -118,7 +139,6 @@ def login_page():
         with tab2:
             st.markdown("<br>", unsafe_allow_html=True)
             nu = st.text_input("Usuario", key="reg_u")
-            np = st.text_input("Pass", type="password", key="reg_p")
             if st.button("REGISTRARSE"):
                 if nu:
                     st.session_state.authenticated = True
@@ -142,7 +162,6 @@ def main_app():
         if st.button("➕ Nueva Conversación"):
             st.session_state.messages = []
             if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
-            st.session_state.modo_llamada = False
             st.rerun()
         st.markdown("---")
         menu = st.radio("Menú", ["💬 Chat", "📜 Historial", "🎨 Personalizar", "👤 Perfil"], label_visibility="collapsed")
@@ -152,52 +171,48 @@ def main_app():
             st.rerun()
 
     if menu == "💬 Chat":
-        # --- BARRA DE CONTROL ---
         c1, c2, c3, c4, sp = st.columns([1,1,1,1, 10])
         
-        # 1. BOTÓN MICRÓFONO (Activa/Desactiva grabadora)
-        if c1.button("🎤", help="Dictar mensaje"):
+        # BOTONES DE ACCIÓN
+        if c1.button("🎤", help="Dictar"):
             st.session_state.modo_voz = not st.session_state.modo_voz
-            st.session_state.modo_adjuntar = False
             st.rerun()
-
-        # 2. BOTÓN LLAMADA (Activa modo llamada)
-        if c2.button("📞", help="Modo Llamada"):
+        if c2.button("📞", help="Llamada"):
             st.session_state.modo_llamada = not st.session_state.modo_llamada
-            st.session_state.modo_voz = False
             st.rerun()
-
-        # 3. BOTÓN VIDEO (Aviso de limitación)
-        if c3.button("📹", help="Videollamada"):
-            st.toast("⚠️ Videollamada en desarrollo. Usando modo audio.", icon="📹")
-
-        # 4. BOTÓN ADJUNTAR
+        if c3.button("📹", help="Video"):
+            st.toast("Videollamada en Beta.")
         if c4.button("📎", help="Adjuntar"):
             st.session_state.modo_adjuntar = not st.session_state.modo_adjuntar
-            st.session_state.modo_voz = False
             st.rerun()
             
         st.markdown("---")
 
-        # --- ÁREA DE INPUT POR VOZ (Whisper) ---
-        prompt_final = None # Variable para guardar lo que el usuario envía
+        prompt_final = None
 
+        # --- MODO DICTADO (ARREGLADO) ---
         if st.session_state.modo_voz:
-            st.info("🎤 Grabando... (Haz clic en 'Stop' para enviar)")
-            audio_grabado = st.audio_input("Tu voz") # Componente nuevo de Streamlit
+            st.info("🎤 Grabando... Presiona 'Stop' para procesar.")
+            # Nota: Streamlit no puede hacer streaming letra por letra.
+            # Primero graba, luego transcribe.
+            audio_grabado = st.audio_input("Voz") 
             if audio_grabado:
-                # Transcribir con Groq
-                texto_transcrito = transcribir_audio(client, audio_grabado)
-                if texto_transcrito:
-                    prompt_final = texto_transcrito # ¡Esto se enviará como mensaje!
-                    st.session_state.modo_voz = False # Cerrar micro tras enviar
+                texto = transcribir_audio(client, audio_grabado)
+                if texto:
+                    st.success(f"Escuchado: {texto}")
+                    if st.button("📩 Enviar transcripción"):
+                        prompt_final = texto
+                        st.session_state.modo_voz = False # Cerrar micro
 
-        if st.session_state.modo_adjuntar:
-            st.file_uploader("Subir archivo (PDF, IMG, TXT)")
-
+        # --- MODO LLAMADA (FLUJO CONTINUO) ---
         if st.session_state.modo_llamada:
-             st.markdown("""<div class="call-box"><h3>📞 Llamada Activa</h3><p>Modo de solo audio activado.</p></div>""", unsafe_allow_html=True)
-
+            st.markdown("""<div class="call-box"><h3>📞 Llamada Activa</h3><p>Habla y espera la respuesta...</p></div>""", unsafe_allow_html=True)
+            # En modo llamada usamos el audio input directo para conversar
+            audio_llamada = st.audio_input("Hablar en llamada")
+            if audio_llamada:
+                texto_llamada = transcribir_audio(client, audio_llamada)
+                if texto_llamada:
+                    prompt_final = texto_llamada # Se envía directo
 
         # --- MOSTRAR CHAT ---
         if not st.session_state.messages:
@@ -207,27 +222,22 @@ def main_app():
             avatar = "👤" if message["role"] == "user" else "🧠"
             with st.chat_message(message["role"], avatar=avatar):
                 st.markdown(message["content"])
-                # Si el mensaje es del asistente, intentamos mostrar un reproductor de audio pequeño si se desea
-                # (Opcional, para no saturar)
 
-        # --- INPUT DE TEXTO (O VOZ YA PROCESADA) ---
+        # Input Texto
         prompt_texto = st.chat_input("Escribe aquí...")
-        
-        # Prioridad: Si hay voz transcrita, usamos eso. Si no, texto escrito.
-        if prompt_texto:
-            prompt_final = prompt_texto
+        if prompt_texto: prompt_final = prompt_texto
 
         # --- PROCESAMIENTO CENTRAL ---
         if prompt_final:
-            # 1. Guardar Usuario
+            # 1. Guardar User
             st.session_state.messages.append({"role": "user", "content": prompt_final})
             guardar_mensaje("user", prompt_final)
-            st.rerun() # Recargar para mostrar mensaje usuario
+            st.rerun() # Refrescar para mostrar mensaje usuario
 
-    # --- RESPUESTA IA (Al recargar) ---
+    # --- RESPUESTA IA ---
     if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
         with st.chat_message("assistant", avatar="🧠"):
-            sys = {"role": "system", "content": f"Eres Código Humano AI. Usuario: {st.session_state.user_name}. Empático. Breve."}
+            sys = {"role": "system", "content": f"Eres Código Humano AI. Usuario: {st.session_state.user_name}. Breve y cálido."}
             msgs = [sys] + st.session_state.messages
             
             stream = client.chat.completions.create(
@@ -236,27 +246,37 @@ def main_app():
                 stream=True
             )
             
-            # Generar texto visual
             texto_respuesta = st.write_stream(generar_respuestas_texto(stream))
             
-            # GENERAR AUDIO (La IA habla)
-            audio_bytes = texto_a_voz(texto_respuesta)
-            if audio_bytes:
-                st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+            # --- AUDIO AUTOMÁTICO (RÁPIDO) ---
+            # Solo habla si estamos en Modo Llamada o si el usuario quiere
+            if st.session_state.modo_llamada or st.session_state.modo_voz:
+                reproducir_audio_ia(texto_respuesta)
         
-        # Guardar respuesta
         st.session_state.messages.append({"role": "assistant", "content": texto_respuesta})
         guardar_mensaje("assistant", texto_respuesta)
+
+    elif menu == "🎨 Personalizar":
+        st.title("Ajustes de Voz y Personalidad")
+        st.slider("Nivel de Empatía", 0, 100, 90)
+        
+        # --- SELECTOR DE VOZ REAL ---
+        st.subheader("🔊 Selección de Voz")
+        nombre_voz = st.selectbox("Elige la voz de tu IA:", list(VOCES.keys()))
+        
+        # Guardar selección
+        st.session_state.voz_seleccionada = VOCES[nombre_voz]
+        st.success(f"Voz configurada: {nombre_voz}")
+        
+        if st.button("🔊 Probar Voz"):
+            asyncio.run(generar_audio_edge("Hola, soy Código Humano, estoy aquí para escucharte.", st.session_state.voz_seleccionada))
+            st.audio("respuesta_audio.mp3", autoplay=True)
 
     elif menu == "📜 Historial":
         st.title("Historial")
         if st.session_state.messages:
             for m in st.session_state.messages:
-                st.text(f"{m['role']}: {m['content'][:50]}...")
-
-    elif menu == "🎨 Personalizar":
-        st.title("Ajustes")
-        st.slider("Empatía", 0, 100, 90)
+                st.text(f"{m['role']}: {m['content'][:80]}...")
 
     elif menu == "👤 Perfil":
         st.title("Perfil")
@@ -265,4 +285,3 @@ def main_app():
 if __name__ == "__main__":
     if not st.session_state.authenticated: login_page()
     else: main_app()
-        
