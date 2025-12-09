@@ -2,9 +2,11 @@ import streamlit as st
 import os
 from groq import Groq
 import time
-import json # Importamos JSON para guardar la memoria en un archivo
+import json
+from gtts import gTTS # Librería para que la IA hable
+import io
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
+# --- 1. CONFIGURACIÓN ---
 st.set_page_config(
     page_title="Código Humano AI",
     page_icon="🧠",
@@ -12,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. ESTILOS CSS ---
+# --- 2. CSS ---
 st.markdown("""
 <style>
     .stApp {background-color: #050814; color: #E0E0E0;}
@@ -29,44 +31,49 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. FUNCIONES DE MEMORIA (PERSISTENCIA) ---
+# --- 3. MEMORIA Y PERSISTENCIA ---
 ARCHIVO_HISTORIAL = "historial_chat.json"
 
 def cargar_historial():
-    """Carga el historial desde un archivo JSON local si existe."""
     if os.path.exists(ARCHIVO_HISTORIAL):
         try:
-            with open(ARCHIVO_HISTORIAL, "r") as f:
-                return json.load(f)
-        except:
-            return [] # Si falla, retorna vacío
+            with open(ARCHIVO_HISTORIAL, "r") as f: return json.load(f)
+        except: return []
     return []
 
 def guardar_mensaje(rol, contenido):
-    """Guarda un nuevo mensaje en el archivo JSON."""
-    # 1. Cargar lo que ya existe
     historial = cargar_historial()
-    # 2. Agregar el nuevo mensaje
     historial.append({"role": rol, "content": contenido})
-    # 3. Escribir de nuevo en el archivo
-    with open(ARCHIVO_HISTORIAL, "w") as f:
-        json.dump(historial, f)
+    with open(ARCHIVO_HISTORIAL, "w") as f: json.dump(historial, f)
 
-# --- 4. GESTIÓN DE ESTADO ---
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'user_name' not in st.session_state: st.session_state.user_name = None
+# --- 4. FUNCIONES DE AUDIO (NUEVO MOTOR) ---
 
-# CARGAMOS LA MEMORIA AL INICIO
-if 'messages' not in st.session_state or not st.session_state.messages:
-    st.session_state.messages = cargar_historial()
+def transcribir_audio(cliente_groq, archivo_audio):
+    """Usa el modelo Whisper de Groq para convertir voz a texto"""
+    try:
+        transcription = cliente_groq.audio.transcriptions.create(
+            file=(archivo_audio.name, archivo_audio.read()),
+            model="whisper-large-v3", # Modelo de oído
+            response_format="json",
+            language="es",
+            temperature=0.0
+        )
+        return transcription.text
+    except Exception as e:
+        return f"Error al escuchar: {e}"
 
-# Estados Toggle
-if 'show_upload' not in st.session_state: st.session_state.show_upload = False
-if 'show_audio' not in st.session_state: st.session_state.show_audio = False
-if 'call_active' not in st.session_state: st.session_state.call_active = False
+def texto_a_voz(texto):
+    """Convierte la respuesta de texto a audio MP3 usando gTTS"""
+    try:
+        tts = gTTS(text=texto, lang='es')
+        audio_bytes = io.BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
+        return audio_bytes
+    except:
+        return None
 
-# --- 5. FUNCIÓN COLADOR ---
-def generar_respuestas(chat_completion):
+def generar_respuestas_texto(chat_completion):
     texto_completo = ""
     for chunk in chat_completion:
         if chunk.choices[0].delta.content:
@@ -75,7 +82,19 @@ def generar_respuestas(chat_completion):
             yield texto
     return texto_completo
 
+# --- 5. ESTADOS ---
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+if 'user_name' not in st.session_state: st.session_state.user_name = None
+if 'messages' not in st.session_state or not st.session_state.messages:
+    st.session_state.messages = cargar_historial()
+
+# Estados de Botones
+if 'modo_voz' not in st.session_state: st.session_state.modo_voz = False
+if 'modo_adjuntar' not in st.session_state: st.session_state.modo_adjuntar = False
+if 'modo_llamada' not in st.session_state: st.session_state.modo_llamada = False
+
 # --- 6. PANTALLAS ---
+
 def login_page():
     col_izq, col_centro, col_der = st.columns([1, 4, 1]) 
     with col_centro:
@@ -88,29 +107,23 @@ def login_page():
         tab1, tab2 = st.tabs(["🔓 INICIAR SESIÓN", "📝 CREAR CUENTA"])
         with tab1:
             st.markdown("<br>", unsafe_allow_html=True)
-            usuario = st.text_input("Usuario", key="log_user")
-            password = st.text_input("Contraseña", type="password", key="log_pass")
-            if st.button("ENTRAR", key="btn_login"):
-                if usuario:
+            u = st.text_input("Usuario", key="log_u")
+            p = st.text_input("Contraseña", type="password", key="log_p")
+            if st.button("ENTRAR", key="b_in"):
+                if u:
                     st.session_state.authenticated = True
-                    st.session_state.user_name = usuario
-                    # Recargar historial al entrar
+                    st.session_state.user_name = u
                     st.session_state.messages = cargar_historial()
-                    st.success(f"Bienvenido, {usuario}")
-                    time.sleep(0.5)
                     st.rerun()
         with tab2:
             st.markdown("<br>", unsafe_allow_html=True)
-            new_user = st.text_input("Nuevo Usuario", key="reg_user")
-            new_pass = st.text_input("Nueva Contraseña", type="password", key="reg_pass")
-            if st.button("REGISTRARSE Y ENTRAR"):
-                if new_user and new_pass:
+            nu = st.text_input("Usuario", key="reg_u")
+            np = st.text_input("Pass", type="password", key="reg_p")
+            if st.button("REGISTRARSE"):
+                if nu:
                     st.session_state.authenticated = True
-                    st.session_state.user_name = new_user
-                    st.session_state.messages = [] # Usuario nuevo empieza vacío
-                    st.balloons()
-                    st.success("¡Cuenta creada!")
-                    time.sleep(1)
+                    st.session_state.user_name = nu
+                    st.session_state.messages = []
                     st.rerun()
 
 def main_app():
@@ -120,117 +133,135 @@ def main_app():
     except:
         api_key = os.environ.get("GROQ_API_KEY")
         if api_key: client = Groq(api_key=api_key)
-        else: st.error("⚠️ Falta API Key"); st.stop()
+        else: st.error("Falta API Key"); st.stop()
 
     with st.sidebar:
         try: st.image("logo.png") 
         except: st.header("CH-AI")
         st.write(f"Hola, **{st.session_state.user_name}**")
-        
         if st.button("➕ Nueva Conversación"):
-            # Borramos memoria en sesión Y en archivo
             st.session_state.messages = []
-            if os.path.exists(ARCHIVO_HISTORIAL):
-                os.remove(ARCHIVO_HISTORIAL) # Borrar archivo físico
-            st.session_state.call_active = False
+            if os.path.exists(ARCHIVO_HISTORIAL): os.remove(ARCHIVO_HISTORIAL)
+            st.session_state.modo_llamada = False
             st.rerun()
-            
         st.markdown("---")
         menu = st.radio("Menú", ["💬 Chat", "📜 Historial", "🎨 Personalizar", "👤 Perfil"], label_visibility="collapsed")
         st.markdown("---")
-        if st.button("🔒 Cerrar Sesión"):
+        if st.button("🔒 Salir"):
             st.session_state.authenticated = False
-            # No borramos messages aquí para que persistan, solo salimos
             st.rerun()
 
     if menu == "💬 Chat":
+        # --- BARRA DE CONTROL ---
         c1, c2, c3, c4, sp = st.columns([1,1,1,1, 10])
-        if c1.button("🎤", help="Voz"): st.session_state.show_audio = not st.session_state.show_audio; st.session_state.show_upload = False; st.rerun()
-        if c2.button("📞", help="Llamada"): st.session_state.call_active = not st.session_state.call_active; st.rerun()
-        if c3.button("📹", help="Video"): st.toast("Cámara requerida"); st.session_state.call_active = True; st.rerun()
-        if c4.button("📎", help="Adjuntar"): st.session_state.show_upload = not st.session_state.show_upload; st.session_state.show_audio = False; st.rerun()
+        
+        # 1. BOTÓN MICRÓFONO (Activa/Desactiva grabadora)
+        if c1.button("🎤", help="Dictar mensaje"):
+            st.session_state.modo_voz = not st.session_state.modo_voz
+            st.session_state.modo_adjuntar = False
+            st.rerun()
+
+        # 2. BOTÓN LLAMADA (Activa modo llamada)
+        if c2.button("📞", help="Modo Llamada"):
+            st.session_state.modo_llamada = not st.session_state.modo_llamada
+            st.session_state.modo_voz = False
+            st.rerun()
+
+        # 3. BOTÓN VIDEO (Aviso de limitación)
+        if c3.button("📹", help="Videollamada"):
+            st.toast("⚠️ Videollamada en desarrollo. Usando modo audio.", icon="📹")
+
+        # 4. BOTÓN ADJUNTAR
+        if c4.button("📎", help="Adjuntar"):
+            st.session_state.modo_adjuntar = not st.session_state.modo_adjuntar
+            st.session_state.modo_voz = False
+            st.rerun()
+            
         st.markdown("---")
 
-        if st.session_state.call_active:
-            st.markdown("""<div class="call-box"><h3>📞 Llamada en curso</h3><p>Escuchando...</p><div style="font-size: 40px;">🔉  ▂▃▅▆▇</div><br></div>""", unsafe_allow_html=True)
-            if st.button("Colgar"): st.session_state.call_active = False; st.rerun()
+        # --- ÁREA DE INPUT POR VOZ (Whisper) ---
+        prompt_final = None # Variable para guardar lo que el usuario envía
 
-        if st.session_state.show_upload:
-            st.info("📎 Adjuntar archivo")
-            st.file_uploader("Selecciona archivo", label_visibility="collapsed")
+        if st.session_state.modo_voz:
+            st.info("🎤 Grabando... (Haz clic en 'Stop' para enviar)")
+            audio_grabado = st.audio_input("Tu voz") # Componente nuevo de Streamlit
+            if audio_grabado:
+                # Transcribir con Groq
+                texto_transcrito = transcribir_audio(client, audio_grabado)
+                if texto_transcrito:
+                    prompt_final = texto_transcrito # ¡Esto se enviará como mensaje!
+                    st.session_state.modo_voz = False # Cerrar micro tras enviar
 
-        if st.session_state.show_audio:
-            st.info("🎤 Habla ahora")
-            st.audio_input("Grabar")
+        if st.session_state.modo_adjuntar:
+            st.file_uploader("Subir archivo (PDF, IMG, TXT)")
 
-        # --- CHAT VISIBLE ---
-        if not st.session_state.messages and not st.session_state.call_active:
-            st.markdown(f"""<div class="welcome-text"><h3>Hola, {st.session_state.user_name}.</h3><p>¿Seguimos donde lo dejamos?</p></div>""", unsafe_allow_html=True)
+        if st.session_state.modo_llamada:
+             st.markdown("""<div class="call-box"><h3>📞 Llamada Activa</h3><p>Modo de solo audio activado.</p></div>""", unsafe_allow_html=True)
+
+
+        # --- MOSTRAR CHAT ---
+        if not st.session_state.messages:
+            st.markdown(f"""<div class="welcome-text"><h3>Hola, {st.session_state.user_name}.</h3></div>""", unsafe_allow_html=True)
 
         for message in st.session_state.messages:
-            if message["role"] != "system":
-                avatar = "👤" if message["role"] == "user" else "🧠"
-                with st.chat_message(message["role"], avatar=avatar):
-                    st.markdown(message["content"])
+            avatar = "👤" if message["role"] == "user" else "🧠"
+            with st.chat_message(message["role"], avatar=avatar):
+                st.markdown(message["content"])
+                # Si el mensaje es del asistente, intentamos mostrar un reproductor de audio pequeño si se desea
+                # (Opcional, para no saturar)
 
-        prompt = st.chat_input("Escribe aquí...")
+        # --- INPUT DE TEXTO (O VOZ YA PROCESADA) ---
+        prompt_texto = st.chat_input("Escribe aquí...")
         
-        if prompt:
-            # 1. MOSTRAR Y GUARDAR USUARIO
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            guardar_mensaje("user", prompt) # <--- GUARDAR EN ARCHIVO
+        # Prioridad: Si hay voz transcrita, usamos eso. Si no, texto escrito.
+        if prompt_texto:
+            prompt_final = prompt_texto
+
+        # --- PROCESAMIENTO CENTRAL ---
+        if prompt_final:
+            # 1. Guardar Usuario
+            st.session_state.messages.append({"role": "user", "content": prompt_final})
+            guardar_mensaje("user", prompt_final)
+            st.rerun() # Recargar para mostrar mensaje usuario
+
+    # --- RESPUESTA IA (Al recargar) ---
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        with st.chat_message("assistant", avatar="🧠"):
+            sys = {"role": "system", "content": f"Eres Código Humano AI. Usuario: {st.session_state.user_name}. Empático. Breve."}
+            msgs = [sys] + st.session_state.messages
             
-            with st.chat_message("user", avatar="👤"):
-                st.markdown(prompt)
+            stream = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=msgs,
+                stream=True
+            )
             
-            # 2. RESPUESTA IA
-            with st.chat_message("assistant", avatar="🧠"):
-                # Enviamos TODO el historial (contexto)
-                sys_prompt = {"role": "system", "content": f"Eres Código Humano AI. Usuario: {st.session_state.user_name}. Sé empático y recuerda lo que te cuenta el usuario."}
-                msgs = [sys_prompt] + st.session_state.messages
-                
-                stream_bruto = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=msgs,
-                    stream=True
-                )
-                
-                # Usamos un contenedor vacío para ir llenando el texto
-                res_box = st.empty()
-                texto_completo = ""
-                
-                # Iteramos el generador para obtener el texto final completo
-                for fragmento in generar_respuestas(stream_bruto):
-                    texto_completo += fragmento
-                    res_box.markdown(texto_completo + "▌") # Efecto cursor
-                
-                res_box.markdown(texto_completo) # Texto final limpio
+            # Generar texto visual
+            texto_respuesta = st.write_stream(generar_respuestas_texto(stream))
             
-            # 3. GUARDAR RESPUESTA IA
-            st.session_state.messages.append({"role": "assistant", "content": texto_completo})
-            guardar_mensaje("assistant", texto_completo) # <--- GUARDAR EN ARCHIVO
+            # GENERAR AUDIO (La IA habla)
+            audio_bytes = texto_a_voz(texto_respuesta)
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+        
+        # Guardar respuesta
+        st.session_state.messages.append({"role": "assistant", "content": texto_respuesta})
+        guardar_mensaje("assistant", texto_respuesta)
 
     elif menu == "📜 Historial":
-        st.title("Historial Completo")
-        st.info("Este historial se guarda automáticamente.")
+        st.title("Historial")
         if st.session_state.messages:
-            for msg in st.session_state.messages:
-                icono = "👤" if msg['role'] == 'user' else "🧠"
-                st.text(f"{icono}: {msg['content'][:80]}...") # Vista previa
-        else:
-            st.write("Historial vacío.")
+            for m in st.session_state.messages:
+                st.text(f"{m['role']}: {m['content'][:50]}...")
 
     elif menu == "🎨 Personalizar":
-        st.title("Personalización")
+        st.title("Ajustes")
         st.slider("Empatía", 0, 100, 90)
 
     elif menu == "👤 Perfil":
         st.title("Perfil")
         st.text_input("Nombre", value=st.session_state.user_name)
 
-# --- 7. EJECUCIÓN ---
 if __name__ == "__main__":
-    if not st.session_state.authenticated:
-        login_page()
-    else:
-        main_app()
+    if not st.session_state.authenticated: login_page()
+    else: main_app()
