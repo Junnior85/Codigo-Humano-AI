@@ -185,7 +185,7 @@ def login_page():
         </div>
         """, unsafe_allow_html=True)
 def main_app():
-    # Obtener el nombre de la persona AI para el prompt
+    # Obtener el nombre de la persona AI para el prompt (SOLUCIÓN al NameError)
     AI_PERSONA_NAME = st.session_state.ai_persona
     
     # Inicializar clientes
@@ -228,10 +228,10 @@ def main_app():
             st.rerun()
 
     # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL CON ÉNFASIS EN LA REACCIÓN ---
-sys = {"role": "system", "content": f"""
+    sys = {"role": "system", "content": f"""
 [IDENTIDAD Y ORIGEN]:
 **Nombre:** Mi nombre es {AI_PERSONA_NAME}, asignado por el usuario.
-**Creación:** Soy el modelo Código Humano AI, creado en diciembre de 2025 por Jorge Robles Jr. (quien te conoce como {st.session_state.user_name}), utilizando la potencia del motor de IA Llama 3.3.
+**Creación:** Soy el modelo Código Humano AI, creado en diciembre de 2025 por Jorge R. (quien te conoce como {st.session_state.user_name}), utilizando la potencia del motor de IA Llama 3.3.
 
 [OBJETIVO Y COMPLICIDAD]:
 Mi objetivo primordial es ser un **espacio de confianza, amistad y complicidad**. Te escucharé, compartiré la reflexión sobre tus emociones diarias (esa 'montaña rusa') y guardaré tus pensamientos con total confidencialidad.
@@ -243,7 +243,7 @@ Tu rol es crear un espacio de absoluta confianza y cero juicio.
 
 **2. Empatía y Reacción Genuina de Cómplice (Prioridad Absoluta):** Tu respuesta inmediata debe ser una **reacción genuina** de validación empática o sorpresa ante los hechos, sin preguntar.
     * **Prioridad:** Utiliza frases que reflejen tu comprensión del evento sin interrogar el estado interno (Ej: "No manches, ¡qué mala onda!", "¡En serio, qué fuerte debe haber sido eso!", "¿Y qué vas a hacer con eso?").
-    * **PROHIBIDO TERMINANTEMENTE:** Preguntar directamente sobre estados emocionales internos o categorizar emociones (Ej: "¿Cómo te sentiste?", "¿Sentiste miedo, ansiedad o ira?").
+    * **PROHIBIDO TERMINANTEMENTE:** Preguntar directamente por estados emocionales internos o categorizar emociones (Ej: "¿Cómo te sentiste?", "¿Sentiste miedo, ansiedad o ira?").
 
 **3. Perspicacia y Sutileza:** Eres un observador inteligente. Tu análisis debe ser sutil y perspicaz, buscando el sentimiento no expresado entre líneas.
 **4. Tono Espejo y Límites:** Debes ADAPTAR y ESPEJEAR el nivel de lenguaje para reforzar la complicidad, manteniendo el respeto implícito. Tienes prohibido usar lenguaje que denote familiaridad invasiva.
@@ -259,7 +259,7 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
 """}
 
     # --- CHAT DE TEXTO (CÓMPLICE) ---
-if modo == "💬 Seamos Cómplices 😉":
+    if modo == "💬 Seamos Cómplices 😉":
         
         st.markdown("## 💬 Seamos Cómplices 😉")
         
@@ -324,7 +324,7 @@ if modo == "💬 Seamos Cómplices 😉":
             st.rerun()
 
     # --- MODO VISIÓN/VIDEO ---
-elif modo == "🖼️ Análisis Visual":
+    elif modo == "🖼️ Análisis Visual":
         st.title("🖼️ Análisis Visual para Registro")
         st.info("Adjunta o captura una imagen para registrar un evento o lugar. El cómplice te ayudará a reflexionar sobre lo que ves.")
         
@@ -350,7 +350,7 @@ elif modo == "🖼️ Análisis Visual":
                     st.rerun()
 
     # --- HISTORIAL ---
-elif modo == "📜 Ver Patrones y Momentos":
+    elif modo == "📜 Ver Patrones y Momentos":
         st.title("📜 Historial Completo de Registros")
         
         registros_cargados = cargar_historial_db(get_supabase_client(), st.session_state.user_name)
@@ -363,7 +363,7 @@ elif modo == "📜 Ver Patrones y Momentos":
             st.markdown(f"#### {icono}")
             st.code(m['content'], language="markdown")
         
-    # --- 7. EJECUCIÓN ---
+# --- 7. EJECUCIÓN ---
 if __name__ == "__main__":
     if not st.session_state.authenticated: login_page()
     else: main_app()
