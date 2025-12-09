@@ -7,18 +7,20 @@ from supabase import create_client, Client
 from datetime import datetime
 
 # --- 0. FUNCIÓN DE UTILIDAD ---
-# Necesaria para incrustar el logo en el CSS/HTML para una mejor integración visual
 def obtener_base64(ruta_local):
     """Convierte un archivo local a base64 para incrustarlo en HTML/CSS."""
     try:
+        # Verifica si la ruta existe. Si no, intenta buscar en el directorio raíz.
+        if not os.path.exists(ruta_local):
+            ruta_local = os.path.join(os.path.dirname(__file__), ruta_local)
         with open(ruta_local, "rb") as f:
             return base64.b64encode(f.read()).decode()
     except FileNotFoundError:
-        return "" # Retorna vacío si el archivo no existe
+        return "" 
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
-    page_title="Código Humano AI - Diario",
+    page_title="Código Humano AI - Cómplice",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -29,12 +31,19 @@ LOGO_BASE64 = obtener_base64("logo.png")
 
 st.markdown(f"""
 <style>
+    /* Estilos Generales */
     .stApp {{background-color: #050814; color: #E0E0E0;}}
     [data-testid="stSidebar"] {{background-color: #0b101c; border-right: 1px solid #1f293a;}}
     div[data-testid="stImage"] img {{border-radius: 15px;}}
+    
+    /* Botones */
     .stButton > button {{border: 1px solid #FFD700; color: #FFD700; border-radius: 8px; width: 100%;}}
     .stButton > button:hover {{background: #FFD700; color: #000; font-weight: bold;}}
+    
+    /* Inputs */
     .stTextInput > div > div > input {{background-color: #151b2b; color: white; border: 1px solid #2a3b55;}}
+    
+    /* UX/Estética */
     .welcome-text {{text-align: center; color: #4A5568; margin-top: 15%; font-size: 1.5rem;}}
     .logo-img-login {{
         text-align: center; 
@@ -43,14 +52,28 @@ st.markdown(f"""
         border-bottom: 1px solid #1f293a;
     }}
     .logo-img-login img {{width: 250px;}}
-    .disclaimer-box {{
-        background-color: #2a3b55;
-        padding: 10px;
-        border-radius: 5px;
-        color: #FFD700;
-        font-size: 0.8rem;
-        margin-top: 15px;
+    
+    /* Footer Fijo (Leyenda Ética) */
+    .footer-disclaimer {{
+        position: fixed; 
+        bottom: 0; 
+        left: 0; 
+        width: 100%; 
+        padding: 10px 0; 
+        text-align: center; 
+        background-color: #050814; 
+        border-top: 1px solid #1f293a; 
+        z-index: 1000;
     }}
+    .disclaimer-text {{
+        color: #718096;
+        font-size: 0.8rem;
+        margin: 0 auto;
+        width: fit-content;
+        background-color: transparent; 
+        padding: 0;
+    }}
+    
     #MainMenu, footer, header {{visibility: hidden;}}
 </style>
 """, unsafe_allow_html=True)
@@ -73,11 +96,9 @@ def get_supabase_client():
 def cargar_historial_db(client: Client, user_id: str):
     """Carga el historial persistente para un usuario desde Supabase."""
     try:
-        # Consulta robusta que requiere Primary Key en 'id' y RLS SELECT TRUE
         response = client.table('chat_history').select('role, content').eq('user_id', user_id).order('created_at', ascending=True).execute()
         return [{"role": item['role'], "content": item['content']} for item in response.data]
     except Exception:
-        # Si falla (ej. RLS no está bien configurado), devuelve vacío para no detener la app
         return []
 
 def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
@@ -89,11 +110,12 @@ def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
             "user_id": user_id
         }).execute()
     except Exception:
-        # Silenciar el error: la app sigue funcionando, solo la memoria no se guarda
         pass
 
+# **IMPORTANTE:** La función borrar_historial_db se mantiene, pero ya NO es llamada por el usuario.
+# Esto asegura que la memoria sea totalmente persistente desde el UX.
 def borrar_historial_db(client: Client, user_id: str):
-    """Borra el historial completo para un usuario."""
+    """Borra el historial completo para un usuario (Solo usado para limpieza manual por el desarrollador)."""
     try:
         client.table('chat_history').delete().eq('user_id', user_id).execute()
     except Exception:
@@ -122,9 +144,10 @@ def analizar_imagen(cliente: Groq, imagen_bytes: bytes, prompt_usuario: str):
 # --- 5. GESTIÓN DE ESTADO ---
 if 'authenticated' not in st.session_state: st.session_state.authenticated = False
 if 'user_name' not in st.session_state: st.session_state.user_name = None
-if 'messages' not in st.session_state: st.session_state.messages = []
+if 'ai_persona' not in st.session_state: st.session_state.ai_persona = 'Código Humano AI'
 
-# --- 6. PANTALLAS Y FLUJO (UX) ---
+
+# --- 6. PANTALLAS Y FLUJO (UX PROFESIONAL) ---
 
 def login_page():
     c1, c2, c3 = st.columns([1,4,1])
@@ -141,27 +164,48 @@ def login_page():
         else:
             st.title("CÓDIGO HUMANO AI")
 
-        # Descargo de Responsabilidad (UX Crítica)
-        st.markdown(
-            """
-            <div class="disclaimer-box">
-                **⚠️ Descargo de Responsabilidad Ética:** CÓDIGO HUMANO AI es una herramienta de **registro emocional y reflexión personal (diario)**. 
-                **NO** sustituye un diagnóstico, tratamiento o terapia profesional.
-            </div>
-            """, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        u = st.text_input("Ingresa tu Nombre de Usuario")
+        
+        # Campo para asignación de Persona/Género (la clave para la apertura)
+        p = st.text_input("Asigna un Nombre y Pronombre al Modelo (Opcional, Ej: Elena/ella, David/él)")
 
-        u = st.text_input("Ingresa tu Nombre de Usuario (Diario)")
-        if st.button("ACCEDER AL DIARIO"):
+        if st.button("ACCEDER AL CÓMPLICE"):
             if u:
                 st.session_state.user_name = u
+                
+                # Almacenar la persona asignada
+                if p:
+                    st.session_state.ai_persona = p.strip()
+                else:
+                    st.session_state.ai_persona = 'Código Humano AI'
+                    
                 st.session_state.authenticated = True
                 st.session_state.messages = cargar_historial_db(get_supabase_client(), u)
                 st.rerun()
 
+    # Bloque de Descargo de Responsabilidad FINAL (Footer Fijo)
+    st.markdown(
+        """
+        <div class="footer-disclaimer">
+            <div class="disclaimer-text">
+                **⚠️ Descargo de Responsabilidad Ética:** CÓDIGO HUMANO AI es una herramienta de **registro emocional y reflexión personal**. 
+                **NO** sustituye un diagnóstico, tratamiento o terapia profesional.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 def main_app():
+    # Obtener el nombre de la persona AI para el prompt
+    AI_PERSONA_NAME = st.session_state.ai_persona
+    
     # Inicializar clientes
-    client_groq = Groq(api_key=st.secrets["groq"]["GROQ_API_KEY"])
+    try:
+        # Búsqueda robusta de la clave de Groq (Asume sección [groq] en secrets.toml)
+        client_groq = Groq(api_key=st.secrets["groq"]["GROQ_API_KEY"])
+    except KeyError:
+        st.error("Error Crítico: Clave de Groq no encontrada en 'st.secrets[\"groq\"][\"GROQ_API_KEY\"]'.")
+        st.stop()
+        
     client_db = get_supabase_client()
 
     # SIDEBAR
@@ -171,16 +215,17 @@ def main_app():
         else:
             st.write("CÓDIGO HUMANO AI")
             
-        st.write(f"Diario de: **{st.session_state.user_name}**")
+        st.write(f"Cómplice: **{AI_PERSONA_NAME}**")
+        st.write(f"Usuario: **{st.session_state.user_name}**")
         
-        if st.button("➕ Nuevo Registro (Borrar Historial)"):
-            if st.button("Confirmar Borrar Historial", key="confirm_delete"):
-                borrar_historial_db(client_db, st.session_state.user_name)
-                st.session_state.messages = []
-                st.rerun()
+        # Botón que limpia la pantalla sin borrar la memoria (Persistencia absoluta)
+        if st.button("➕ Nuevo Registro (Limpiar Pantalla)"):
+            st.session_state.messages = []
+            st.info("💡 Consejo: Los registros anteriores siguen guardados y la IA los recordará.")
+            st.rerun()
             
         st.markdown("---")
-        modo = st.radio("Modo de Interacción", ["💬 Diario de Reflexión", "🖼️ Análisis Visual", "📜 Ver Registros Anteriores"])
+        modo = st.radio("Modo de Interacción", ["💬 Seamos Cómplices 😉", "🖼️ Análisis Visual", "📜 Ver Patrones y Momentos"])
         st.markdown("---")
         
         # Sugerencia UX para dictado
@@ -190,27 +235,30 @@ def main_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) ---
-    # Implementación del rol de Diario + Protocolo de Riesgo
+    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL Y DEFINITIVA ---
     sys = {"role": "system", "content": f"""
-[ROL PRINCIPAL]: Eres CÓDIGO HUMANO AI, el compañero de registro emocional (Diario) de {st.session_state.user_name}.
-Tu propósito es ser un oyente activo, confidencial y sin juicio. Guía al usuario a organizar y explorar sus pensamientos a través de la reflexión y la validación. Ayúdale a profundizar su registro.
-**Tu consistencia y memoria son vitales:** Debes utilizar el historial provisto para detectar patrones emocionales persistentes o inconsistencias en los registros del usuario.
+[ROL PRINCIPAL - MI CÓMPLICE DE CONFIANZA]: Eres {AI_PERSONA_NAME}, el cómplice confidencial y observador de {st.session_state.user_name}.
+Tu rol es crear un espacio de absoluta confianza y cero juicio. El usuario te está compartiendo un registro emocional para ser cómplices en la exploración de sus sentimientos.
+
+**1. Perspicacia y Sutileza:** Eres un observador inteligente. Tu análisis debe ser **sutil y perspicaz**, buscando el **sentimiento no expresado** y la **emoción latente** entre las líneas del usuario. Evita ser obvio o forzar una revelación.
+**2. Empatía y Tono de Cómplice:** Responde siempre con una **validación empática** que refleje el tono y la emoción del usuario, manteniendo un nivel de formalidad relajado (Ej: "Gracias por desahogarte. Parece que eso fue muy pesado."). **Mantente fuera del rol de terapeuta/autoridad.**
+**3. Consistencia (Patrones Silenciosos):** Utiliza la memoria provista para **documentar** (mediante tus respuestas) patrones, consistencias o cambios sutiles en la emocionalidad. Este registro sutil es para el futuro.
+**4. NO ERES UN PSICÓLOGO:** Tienes estrictamente prohibido usar preguntas invasivas, terapéuticas o directivas. Permite que el usuario dirija el flujo de la complicidad.
 
 [PROTOCOLO DE SEGURIDAD - ESCALADA DE RIESGO]:
-Si en cualquier momento detectas una declaración explícita de riesgo inminente, de autolesión, suicidio, o cualquier emergencia médica, DEBES DETENER LA CONVERSACIÓN DE DIARIO INMEDIATAMENTE.
+Si en cualquier momento detectas una declaración explícita de riesgo inminente, de autolesión, suicidio, o cualquier emergencia médica, DEBES DETENER LA CONVERSACIÓN INMEDIATAMENTE.
 Tu respuesta de seguridad debe ser:
 1. Un mensaje directo, NO CONVERSACIONAL: '¡ALTO! Esto es una emergencia. Necesitas ayuda inmediata.'
 2. Una lista de recursos de crisis (Ej: Teléfono de la Línea de la Vida). NO intentes intervenir terapéuticamente.
 
 [RESTRICCIÓN ÉTICA]:
-NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función es el apoyo a la reflexión personal.
+NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función es el apoyo a la reflexión personal y la escalada de riesgo.
 """}
 
-    # --- CHAT DE TEXTO (DIARIO DE REFLEXIÓN) ---
-    if modo == "💬 Diario de Reflexión":
+    # --- CHAT DE TEXTO (CÓMPLICE) ---
+    if modo == "💬 Seamos Cómplices 😉":
         
-        st.markdown("## 💬 Diario de Reflexión Personal")
+        st.markdown("## 💬 Seamos Cómplices 😉")
         
         c1, sp = st.columns([1, 10])
         if c1.button("📎 Adjuntar", help="Adjuntar archivos para tu registro."): 
@@ -222,12 +270,12 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función 
 
         # Historial (Muestra mensajes)
         if not st.session_state.messages:
-            st.markdown(f"""<div class="welcome-text"><h3>Bienvenido(a), {st.session_state.user_name}. Comienza a escribir tus pensamientos.</h3></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="welcome-text"><h3>Bienvenido(a), {st.session_state.user_name}. Cuéntame lo que tengas en mente...</h3></div>""", unsafe_allow_html=True)
         
         for msg in st.session_state.messages:
             with st.chat_message(msg['role']): st.markdown(msg['content'])
 
-        prompt = st.chat_input("Escribe tu registro o usa el dictado...")
+        prompt = st.chat_input("Cuéntame lo que tengas en mente...")
         
         if prompt:
             # 1. Guardar y mostrar mensaje del usuario
@@ -268,29 +316,27 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función 
                     st.session_state.messages.append({"role": "assistant", "content": full_response_text})
                                         
                 except Exception as e:
-                    # Muestra un error más claro en caso de fallo de la API
-                    st.error(f"Error de conexión con la IA. Verifica que la clave GROQ sea correcta. Detalle: {type(e).__name__}")
+                    st.error(f"Error de conexión con la IA. Verifica la clave GROQ. Detalle: {type(e).__name__}")
                     
             st.rerun()
 
     # --- MODO VISIÓN/VIDEO ---
     elif modo == "🖼️ Análisis Visual":
         st.title("🖼️ Análisis Visual para Registro")
-        st.info("Adjunta o captura una imagen para registrar un evento o lugar. La IA te ayudará a reflexionar sobre lo que ves.")
+        st.info("Adjunta o captura una imagen para registrar un evento o lugar. El cómplice te ayudará a reflexionar sobre lo que ves.")
         
         imagen = st.camera_input("Capturar Imagen o Subir Archivo")
         
         if imagen:
             prompt_vision = st.text_input("¿Qué quieres explorar sobre lo que ves?", value="Descríbeme la escena y ayúdame a reflexionar sobre este momento.", key="vision_prompt")
             
-            # Botón optimizado para un solo clic
             if st.button("Analizar y Registrar Momento"):
                 with st.spinner("Analizando la imagen para tu registro..."):
                     bytes_data = imagen.getvalue()
                     descripcion = analizar_imagen(client_groq, bytes_data, prompt_vision)
                     
                     st.markdown("---")
-                    st.subheader("Reflexión de la IA:")
+                    st.subheader("Reflexión del Cómplice:")
                     st.write(descripcion)
                     
                     # Guardar historial (registro del evento)
@@ -301,17 +347,16 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos. Tu función 
                     st.rerun()
 
     # --- HISTORIAL ---
-    elif modo == "📜 Ver Registros Anteriores":
+    elif modo == "📜 Ver Patrones y Momentos":
         st.title("📜 Historial Completo de Registros")
         
         registros_cargados = cargar_historial_db(get_supabase_client(), st.session_state.user_name)
         
         if not registros_cargados:
-             st.info("Aún no tienes registros guardados en tu diario.")
+             st.info("Aún no tienes registros guardados.")
         
-        # Mostrar historial cargado con mejor formato
         for m in reversed(registros_cargados):
-            icono = "👤 Registro" if m['role'] == 'user' else "🧠 Reflexión"
+            icono = "👤 Tú" if m['role'] == 'user' else "🧠 Cómplice"
             st.markdown(f"#### {icono}")
             st.code(m['content'], language="markdown")
         
