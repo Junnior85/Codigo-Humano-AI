@@ -324,7 +324,7 @@ if modo == "💬 Seamos Cómplices 😉":
             st.rerun()
 
     # --- MODO VISIÓN/VIDEO ---
-    elif modo == "🖼️ Análisis Visual":
+elif modo == "🖼️ Análisis Visual":
         st.title("🖼️ Análisis Visual para Registro")
         st.info("Adjunta o captura una imagen para registrar un evento o lugar. El cómplice te ayudará a reflexionar sobre lo que ves.")
         
@@ -350,7 +350,7 @@ if modo == "💬 Seamos Cómplices 😉":
                     st.rerun()
 
     # --- HISTORIAL ---
-    elif modo == "📜 Ver Patrones y Momentos":
+elif modo == "📜 Ver Patrones y Momentos":
         st.title("📜 Historial Completo de Registros")
         
         registros_cargados = cargar_historial_db(get_supabase_client(), st.session_state.user_name)
@@ -363,7 +363,7 @@ if modo == "💬 Seamos Cómplices 😉":
             st.markdown(f"#### {icono}")
             st.code(m['content'], language="markdown")
         
-# --- 7. EJECUCIÓN ---
+    # --- 7. EJECUCIÓN ---
 if __name__ == "__main__":
     if not st.session_state.authenticated: login_page()
     else: main_app()
