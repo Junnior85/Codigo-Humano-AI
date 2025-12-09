@@ -259,7 +259,7 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
 """}
 
     # --- CHAT DE TEXTO (CÓMPLICE) ---
-    if modo == "💬 Seamos Cómplices 😉":
+if modo == "💬 Seamos Cómplices 😉":
         
         st.markdown("## 💬 Seamos Cómplices 😉")
         
