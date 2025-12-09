@@ -184,7 +184,6 @@ def login_page():
             </div>
         </div>
         """, unsafe_allow_html=True)
-
 def main_app():
     # Obtener el nombre de la persona AI para el prompt
     AI_PERSONA_NAME = st.session_state.ai_persona
