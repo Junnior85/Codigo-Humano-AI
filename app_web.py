@@ -3,7 +3,6 @@ import os
 from groq import Groq
 import json
 from datetime import datetime
-import asyncio
 import base64
 from supabase import create_client, Client # <-- Importamos el cliente Supabase
 
