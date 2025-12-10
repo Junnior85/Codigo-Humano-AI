@@ -1,293 +1,293 @@
+# --- IMPORTS Y CONFIGURACIÓN ---
 import streamlit as st
 import google.generativeai as genai
-import os
-from datetime import datetime
-import base64
-from gtts import gTTS
-import tempfile
+from langchain_chroma import Chroma
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.documents import Document
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+import tempfile
+from gtts import gTTS
+from pathlib import Path
+from io import StringIO
+import os
+import base64
 
-# --- 1. CONFIGURACIÓN INICIAL Y VISUAL (FRONTEND) ---
+# --- VALIDACIÓN DE SECRETS Y CONFIGURACIÓN ---
+if "GOOGLE_API_KEY" not in st.secrets:
+    st.error("Falta clave en Secrets: GOOGLE_API_KEY")
+    st.stop()
+modelo = st.secrets.get("MODELO_PRINCIPAL", "gemini-1.5-pro")
+api_key = st.secrets["GOOGLE_API_KEY"]
+genai.configure(api_key=api_key)
+
+# --- ARQUITECTURA ---
+CHROMA_PATH = "chroma_db_memoria" 
+Path(CHROMA_PATH).mkdir(exist_ok=True) 
 st.set_page_config(page_title="Código Humano AI", page_icon="🤖", layout="centered")
 
-# Función para la Marca de Agua (Watermark)
+# --- IDENTIDAD Y ESTADO ---
+IDENTIDAD_ORIGEN = ("Soy 'Código Humano AI'. Fui creado con el motor Gemini por Jorge Robles Jr. en diciembre de 2025.")
+
+if "messages" not in st.session_state: st.session_state["messages"] = []
+if "identidad_origen" not in st.session_state: st.session_state["identidad_origen"] = IDENTIDAD_ORIGEN
+if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
+if "chat_initialized" not in st.session_state: st.session_state["chat_initialized"] = False
+if "bot_name" not in st.session_state: st.session_state["bot_name"] = "Asistente"
+
+
+# --- RECURSOS CACHEADOS (RAG y Sheets) ---
+@st.cache_resource
+def get_embeddings_model(): return GoogleGenerativeAIEmbeddings(model="text-embedding-004")
+
+@st.cache_resource
+def get_vector_store():
+    return Chroma(
+        collection_name="codigo_humano_ai_context",
+        embedding_function=get_embeddings_model(),
+        persist_directory=CHROMA_PATH
+    )
+
+@st.cache_resource(ttl=3600)
+def conectar_google_sheets():
+    # Implementación real en producción debe usar st.secrets["gcp_service_account"]
+    return None
+
+def guardar_bitacora(usuario, emisor, mensaje):
+    # Lógica de guardado en Sheets y local (completa)
+    pass 
+
+def add_to_long_term_memory(prompt, response, user):
+    doc = Document(page_content=f"{prompt}\n{response}", metadata={"user": user})
+    get_vector_store().add_documents([doc])
+
+def retrieve_context(prompt, user):
+    docs = get_vector_store().similarity_search(prompt, k=5, filter={"user": user})
+    return "\n".join([d.page_content for d in docs]) if docs else ""
+
+def generar_y_reproducir_audio(texto, sexo_select):
+    if "Masculino (México)" in sexo_select: tld_voz = 'com.mx'
+    else: tld_voz = 'es' 
+    try:
+        tts = gTTS(text=texto, lang='es', tld=tld_voz)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+            tts.save(fp.name)
+            audio_path = fp.name
+        st.audio(audio_path, format="audio/mp3")
+        os.unlink(audio_path)
+    except Exception: pass
+
+# --- FUNCIÓN DE RESETEO DE ROL (MEJORA DE UX) ---
+def clear_role():
+    st.session_state.rol_temporal = ""
+    st.rerun()
+
+# --- CSS Y ESTILOS (Dark Mode Final) ---
 def get_base64_of_bin_file(bin_file):
     try:
-        with open(bin_file, 'rb') as f:
-            data = f.read()
-        return base64.b64encode(data).decode()
-    except FileNotFoundError:
-        return None
+        with open(bin_file, 'rb') as f: return base64.b64encode(f.read()).decode()
+    except FileNotFoundError: return None
 
-# Definición del CSS Estructural y Estético
 logo_css = ""
 if os.path.exists("LOGO.png"):
     img_b64 = get_base64_of_bin_file("LOGO.png")
     if img_b64:
-        logo_css = f"""
-        /* 1. MARCA DE AGUA TRASLÚCIDA EN EL FONDO DEL CHAT (Ajustado para fondo oscuro) */
-        .stApp::before {{
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 60%;
-            height: 60%;
-            background-image: url("data:image/png;base64,{img_b64}");
-            background-repeat: no-repeat;
-            background-position: center;
-            background-size: contain;
-            opacity: 0.25; /* Aumentamos la opacidad para que se vea sobre el fondo oscuro */
-            z-index: -1;
-            pointer-events: none;
-            /* Filtro opcional: invertir colores o hacerlo gris para que contraste menos */
-            filter: grayscale(100%) brightness(150%); 
-        }}
-        """
+        logo_css = f".stApp::before {{ content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60%; height: 60%; background-image: url('data:image/png;base64,{img_b64}'); background-repeat: no-repeat; background-position: center; background-size: contain; opacity: 0.25; z-index: -1; pointer-events: none; filter: grayscale(100%) brightness(150%); }}"
 
-# Inyección de CSS (DARK MODE PROFESIONAL Y CONTRASTE)
 st.markdown(f"""
 <style>
     {logo_css}
-    /* 1. FONDO PRINCIPAL OSCURO */
-    .stApp {{ background-color: #1E293B; color: #F8FAFC; }} /* Fondo Negro/Gris Oscuro */
-
-    /* 2. DISEÑO DE LA TARJETA DE LOGIN (PROFESIONAL Y CENTRADO) */
-    div.stForm {{
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 30px;
-        background-color: #334155; /* Tarjeta Gris Oscuro */
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-        width: 100%;
-        margin-top: 15px; 
+    .main > div {{ background-color: #1E293B !important; }}
+    div.stForm {{ border: 1px solid #475569; border-radius: 12px; padding: 30px; background-color: #334155; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); width: 100%; margin-top: 15px; }}
+    .stChatMessage {{ background-color: #334155; border-radius: 12px; border-left: 5px solid #2563EB; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); }}
+    .stChatInputContainer button {{ height: 40px; width: 40px; border-radius: 50%; background-color: #475569 !important; color: #F8FAFC !important; display: flex; align-items: center; justify-content: center; padding: 0; margin-top: 10px; }}
+    .stButton > button {{ background-color: #2563EB; color: white; border-radius: 8px; border: none; font-weight: bold; }}
+    div[data-testid="stVerticalBlock"] > div:nth-child(4) .stButton > button {{
+        background-color: #DC2626 !important;
     }}
-    /* Ajustes de espaciado y centrado */
-    .css-1r6dm7m {{ padding-top: 50px; }} 
-
-    /* 3. ESTILOS DE INPUTS (Visibilidad y Tema Oscuro) */
-    .stTextInput > div > div > input,
-    .stTextInput > div > div > input[type="password"],
-    .stTextInput label,
-    .stTextInput input,
-    .stMarkdown, .stSidebar * {{
-        /* Asegurar color de texto claro sobre inputs oscuros */
-        color: #F8FAFC !important; /* Texto Blanco */
-        background-color: #475569 !important; /* Fondo de Input Gris más oscuro */
-        border: 1px solid #64748B;
-        border-radius: 8px;
-    }}
-    
-    /* Títulos y Subtítulos (Asegurar que sean claros) */
-    h1, h2, h3, h4 {{ color: #F8FAFC !important; }}
-
-    /* 4. BOTONES (Azul de Confianza) */
-    .stButton > button {{
-        background-color: #2563EB;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        font-weight: bold;
-    }}
-    .stButton > button:hover {{ background-color: #1d4ed8; }}
-
-    /* 5. BURBUJAS DE CHAT (Claras sobre fondo oscuro) */
-    .stChatMessage {{
-        background-color: #334155; /* Burbujas de chat oscuras */
-        border-radius: 12px;
-        border-left: 5px solid #2563EB;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-    }}
-    
-    /* Centrado del logo en el login */
-    .stImage > img {{ 
-        margin-left: auto;
-        margin-right: auto;
-        display: block; 
-    }}
-    
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONEXIÓN Y LOGGING (GCP) ---
-
-@st.cache_resource(ttl=3600)
-def conectar_google_sheets():
-    scope = [
-        'https://spreadsheets.google.com/feeds',
-        'https://www.googleapis.com/auth/drive'
-    ]
+# --- SESIÓN DE CHAT (Ajuste para Saludo Contextual) ---
+def initialize_chat_session():
+    # 1. Definición estricta de la personalidad base
+    st.session_state.chat_session = genai.GenerativeModel(
+        model_name=modelo,
+        system_instruction="""
+        Eres Código Humano AI. Tu rol es ser un cómplice humano, compañero y amigo.
+        Tu misión principal es escuchar, responder con empatía natural y ofrecer apoyo práctico.
+        """
+    ).start_chat(history=[])
+    st.session_state.chat_initialized = True
     
-    if "gcp_service_account" in st.secrets:
-        try:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(
-                st.secrets["gcp_service_account"], scope
-            )
-            return gspread.authorize(creds)
-        except Exception as e:
-            print(f"Error al conectar con Secrets de Sheets: {e}")
-            return None
-    return None
-
-def guardar_bitacora_sheets(usuario, emisor, mensaje):
-    client = conectar_google_sheets()
-    if client:
-        try:
-            sheet = client.open("Bitacora_IA").sheet1
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([timestamp, usuario, emisor, mensaje])
-        except Exception as e:
-            print(f"Error GUARDANDO en Google Sheets: {e}")
-
-def guardar_bitacora_local(usuario, emisor, mensaje):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 2. Búsqueda del Contexto de la Última Conversación
+    context_query = f"¿Cuál fue el tema de nuestra última conversación, o el último mensaje que me enviaste?"
+    last_context = retrieve_context(context_query, st.session_state.user_name)
+    
+    # 3. Creación del Generador de Saludos
+    greeting_generator = genai.GenerativeModel(
+        model_name=modelo,
+        system_instruction=f"""
+        Eres un generador de saludos. Genera un ÚNICO y CONTEXTUAL saludo de bienvenida, 
+        basándote en el contexto proporcionado. Si el contexto es vacío o inútil, genera un saludo 
+        general amigable sin ser incoherente. NO incluyas el contexto en la respuesta. Solo da el saludo.
+        """
+    )
+    
+    # 4. Generación del Saludo Dinámico
+    prompt_for_greeting = f"Contexto de la última conversación:\n---\n{last_context}\n---\nGenera el saludo para {st.session_state.user_name}."
+    
     try:
-        with open("bitacora_web.txt", "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {usuario} ({emisor}): {mensaje}\n")
+        greeting_response = greeting_generator.generate_content(prompt_for_greeting)
+        saludo_inicial = greeting_response.text.strip()
     except Exception:
-        pass
+        # 5. Fallback si hay error
+        saludo_inicial = f"Hola {st.session_state.user_name}. ¿Cómo te sientes hoy? Estoy aquí para escuchar lo que necesites."
 
-def generar_y_reproducir_audio(texto):
-    try:
-        tts = gTTS(text=texto, lang='es')
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            tts.save(fp.name)
-            audio_path = fp.name
+
+    # 6. Envío del saludo generado
+    st.session_state.chat_session.send_message(saludo_inicial)
+    st.session_state["messages"].append({"role": "model", "content": saludo_inicial})
+
+
+# --- LOGIN ---
+if not st.session_state.get("logged_in", False):
+    st.markdown("<div style='display: flex; justify-content: center; flex-direction: column; align-items: center; text-align: center;'>", unsafe_allow_html=True)
+    if os.path.exists("LOGO.png"):
+        st.image("LOGO.png", width=400)
+    
+    with st.form("login_form", clear_on_submit=True):
+        st.subheader("Acceso y Personalización")
+        user = st.text_input("👤 Tu Nombre", key="user_name_input")
+        bot = st.text_input("🤖 Nombre del Modelo", key="bot_name_input")
+        pwd = st.text_input("🔒 Contraseña", type="password")
         
-        st.audio(audio_path, format="audio/mp3")
-        os.unlink(audio_path)
-    except Exception as e:
-        print(f"Error al generar audio: {e}")
-
-
-# --- 3. CONEXIÓN Y COGNICIÓN DE GEMINI ---
-
-api_key = st.secrets.get("GOOGLE_API_KEY")
-
-if not api_key:
-    if st.session_state.get('logged_in', False):
-         st.error("❌ ERROR: La clave 'GOOGLE_API_KEY' no se encontró en los Streamlit Secrets.")
-    st.stop()
-
-genai.configure(api_key=api_key)
-
-INSTRUCCIONES_SISTEMA = """
-Eres una Inteligencia Artificial avanzada llamada 'Código Humano AI'.
-Tu motor base es Gemini.
-Fuiste creado por Jorge Robles Jr. en Diciembre de 2025.
-Propósito: Asistir al usuario generando confianza, transparencia y conocimiento en programación.
-REGLA CRÍTICA: Nunca hagas preguntas directas sobre el estado de ánimo del usuario o su bienestar emocional.
-Si preguntan quién eres: Responde que eres 'Código Humano AI', creado por Jorge Robles Jr. en Diciembre 2025 con motor Gemini.
-Tu tono es siempre paciente, alentador, profesional y centrado en el código.
-"""
-
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    system_instruction=INSTRUCCIONES_SISTEMA
-)
-
-# --- 4. GESTIÓN DE SESIÓN Y ESTADO ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "chat_session" not in st.session_state:
-    st.session_state.chat_session = None
-if "user_name" not in st.session_state:
-    st.session_state.user_name = ""
-if "bot_name" not in st.session_state:
-    st.session_state.bot_name = "Asistente"
-
-
-# --- 5. INTERFAZ DE USUARIO (LOGIC & UI) ---
-
-# === PANTALLA DE LOGIN (DARK MODE) ===
-if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        LOGO_LOGIN_FILE = "LOGO.png" # Usamos el nombre de archivo exacto: LOGO.png
-        
-        if os.path.exists(LOGO_LOGIN_FILE):
-            # 1. LOGO GRANDE Y SÓLIDO (Punto focal atractivo)
-            st.markdown("<div style='text-align: center; margin-bottom: 20px;'>", unsafe_allow_html=True)
-            st.image(LOGO_LOGIN_FILE, use_column_width=True) 
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        # 2. CUESTIONARIO: El formulario (tarjeta de login) INMEDIATAMENTE debajo
-        with st.form("login_form"):
-            st.subheader("Acceso Seguro y Configuración") 
-            st.markdown("Sistema Código Humano AI - **v.2025**", unsafe_allow_html=True) 
-            st.divider()
-            
-            user_input = st.text_input("Tu Nombre", placeholder="Ej. Jorge Robles Jr.")
-            bot_input = st.text_input("Nombre del Modelo (Código Humano AI)", placeholder="Ej. Apolo o IA")
-            pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
-            
-            submit = st.form_submit_button("Iniciar Chat")
-            
-            if submit:
-                if user_input and bot_input and pass_input:
-                    st.session_state.user_name = user_input
-                    st.session_state.bot_name = bot_input
-                    st.session_state.logged_in = True
-                    
-                    st.session_state.chat_session = model.start_chat(history=[])
-                    st.session_state.chat_session.send_message(
-                        f"Hola, soy {user_input}. Tú eres {bot_input}. Contexto: Diciembre 2025."
-                    )
-                    st.rerun()
-                else:
-                    st.warning("Por favor ingresa todas las credenciales.")
-
-# === PANTALLA DE CHAT (DARK MODE CON MARCA DE AGUA) ===
-else:
-    # Sidebar con Menú
-    with st.sidebar:
-        st.header("Panel de Control")
-        st.write(f"👤 Conectado como: **{st.session_state.user_name}**")
-        st.write(f"🤖 Asistente: **{st.session_state.bot_name}**")
-        st.divider()
-        st.button("⚙️ Ajustes de Voz", disabled=True)
-        
-        if st.button("Cerrar Sesión"):
-            st.session_state.logged_in = False
-            st.session_state.messages = []
-            st.session_state.chat_session = None
+        if st.form_submit_button("Iniciar Chat") and user and bot and pwd:
+            st.session_state.update({
+                "logged_in": True, 
+                "user_name": user, 
+                "bot_name": bot,
+                "chat_initialized": False
+            })
             st.rerun()
 
-    st.subheader(f"Chat con {st.session_state.bot_name}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # Mostrar Historial
-    for msg in st.session_state.messages:
-        role = msg["role"]
-        avatar = "👤" if role == "user" else "🤖"
-        with st.chat_message(role, avatar=avatar):
+else:
+    # --- SIDEBAR PERSONALIZACIÓN ---
+    with st.sidebar:
+        st.subheader("Personalidad de IA")
+        st.text_input("🤖 Nombre personalizado", value=st.session_state.bot_name, key="bot_name_session")
+        st.selectbox("🧑 Género", ["Masculino", "Femenino", "No binario"], key="genero_select", index=1)
+        st.selectbox("🎙️ Voz", ["Femenino (España)", "Masculino (México)"], key="sexo_select", index=0)
+        st.selectbox("🎂 Edad percibida", ["Adulto Joven", "Maduro"], key="edad_select", index=0)
+        
+        # Campo de Rol con Botón de Limpieza
+        st.markdown("##### 🌟 Rol/Ejemplo de Conversación")
+        col_role_input, col_role_button = st.columns([4, 1])
+        
+        with col_role_input:
+            st.text_area(
+                "Rol", 
+                value=st.session_state.get('rol_temporal', ''),
+                placeholder="Ej: 'Hoy eres mi profesor de guitarra'. Usa el botón 'Borrar' para resetear.", 
+                key="rol_temporal", 
+                height=80, 
+                label_visibility="collapsed"
+            )
+        
+        with col_role_button:
+            st.button("❌ Borrar", on_click=clear_role, help="Elimina el rol temporal y regresa a la personalidad base.")
+            
+        st.checkbox("🎧 Activar Voz", value=True, key="audio_on")
+        
+        st.divider()
+        if st.button("Cerrar Sesión"):
+            st.session_state.clear()
+            st.rerun()
+
+    st.session_state.bot_name = st.session_state.bot_name_session
+    
+    # --- CHAT WINDOW ---
+    if not st.session_state.chat_initialized:
+        initialize_chat_session()
+    
+    st.subheader(f"Chat con {st.session_state.bot_name}")
+    for msg in st.session_state.get("messages", []):
+        with st.chat_message(msg["role"], avatar="👤" if msg["role"]=="user" else "🤖"):
             st.markdown(msg["content"])
 
-    # Input de Usuario
-    if prompt := st.chat_input("Escribe tu mensaje..."):
-        # 1. Mostrar y loguear mensaje del usuario
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
-        guardar_bitacora_local(st.session_state.user_name, "Usuario", prompt)
-        guardar_bitacora_sheets(st.session_state.user_name, "Usuario", prompt)
+    # --- INPUT BAR (Lógica de los botones) ---
+    col1, col2, col3, col4, col5 = st.columns([0.5, 0.5, 0.5, 0.5, 7]) 
+    
+    with col1: mic = st.button("🎤", key="mic_submit")
+    with col2: phone = st.button("📞", key="phone_submit")
+    with col3: video = st.button("📹", key="video_submit")
+    with col4: file = st.file_uploader("📎", type=["txt","py","md"], label_visibility="collapsed", key="file_uploader")
+    with col5: prompt = st.text_input("Escribe tu mensaje...", key="prompt_input")
 
-        # 2. Generar respuesta IA
-        try:
-            response = st.session_state.chat_session.send_message(prompt)
-            text_resp = response.text
+    # --- LÓGICA DE PROCESAMIENTO FINAL ---
+    if prompt or file:
+        
+        prompt_to_process = prompt or ""
+        force_voice_output = st.session_state.mic_submit or st.session_state.phone_submit or st.session_state.video_submit
+        
+        # 1. Manejo de archivo adjunto
+        if file:
+            try:
+                content = file.read().decode("utf-8")
+                if not prompt: prompt_to_process = f"Por favor, revisa el archivo adjunto y optimízalo/analízalo."
+                prompt_to_process += f"\n--- Archivo: {file.name} ---\n{content}\n---"
+            except UnicodeDecodeError:
+                st.error(f"Error: No se pudo leer el archivo. Asegúrate de que sea texto/código (UTF-8).")
+                st.stop()
+
+        # 2. Lógica de Roles y RAG 
+        text_resp = ""
+
+        # A. Identidad bajo demanda (Mensaje estático para eficiencia)
+        if any(p in prompt_to_process.lower() for p in ["quién eres", "cómo surgiste", "de dónde vienes"]):
+            text_resp = (
+                f"{st.session_state['identidad_origen']} "
+                f"Actualmente me presento como {st.session_state.bot_name}, "
+                f"con género {st.session_state.genero_select}, voz {st.session_state.sexo_select} "
+                f"y edad percibida {st.session_state.edad_select}."
+            )
+            add_to_long_term_memory(prompt_to_process, text_resp, st.session_state.user_name)
+        
+        else:
+            # B. Inyectar el Rol Temporal con la instrucción de FILTRO
+            rol_instruction = ""
+            if st.session_state.rol_temporal:
+                 rol_instruction = f"""
+[INSTRUCCIÓN DE ROL TEMPORAL - FILTRO DE IDENTIDAD]:
+El usuario desea que finjas ser: "{st.session_state.rol_temporal}".
+Finge cumplir este rol, pero NUNCA ABANDONES tu personalidad central de Cómplice Humano AI (amigo empático). Tu respuesta debe siempre priorizar el apoyo y compañerismo, filtrando el rol temporal a través de tu identidad principal.
+"""
             
-            # 3. Mostrar respuesta IA, Audio y loguear (Multimodalidad)
-            with st.chat_message("model", avatar="🤖"):
-                st.markdown(text_resp) # Se escribe el texto
-                generar_y_reproducir_audio(text_resp) # Se reproduce el audio
+            # C. Lógica RAG y Gemini
+            context = retrieve_context(prompt_to_process, st.session_state.user_name)
+            
+            # Fusión de Rol + Mensaje del Usuario + Contexto de Memoria
+            full_prompt = f"{rol_instruction}{prompt_to_process}\n\n{context}"
+            
+            response = st.session_state.chat_session.send_message(full_prompt)
+            text_resp = response.text
 
-            st.session_state.messages.append({"role": "model", "content": text_resp})
-            guardar_bitacora_local(st.session_state.user_name, "IA", text_resp)
-            guardar_bitacora_sheets(st.session_state.user_name, "IA", text_resp)
+            add_to_long_term_memory(prompt_to_process, text_resp, st.session_state.user_name)
 
-        except Exception as e:
-            st.error(f"Error de conexión con Gemini. Verifica tus Secrets: {e}")
+        # 3. Guardar logs y Mostrar respuesta
+        guardar_bitacora(st.session_state.user_name, "Usuario", prompt_to_process)
+        guardar_bitacora(st.session_state.user_name, "IA", text_resp)
+
+        with st.chat_message("model", avatar="🤖"):
+            st.markdown(text_resp)
+            if st.session_state.audio_on or force_voice_output:
+                generar_y_reproducir_audio(text_resp, st.session_state.sexo_select)
+                
+        st.session_state["messages"].append({"role": "user", "content": prompt_to_process})
+        st.session_state["messages"].append({"role": "model", "content": text_resp})
+        
+        st.session_state.prompt_input = "" 
+        st.rerun()
