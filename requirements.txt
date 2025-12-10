@@ -6,3 +6,4 @@ oauth2client
 # NECESARIAS PARA LA MEMORIA VECTORIAL (RAG)
 langchain-chroma
 langchain-google-genai
+langchain-core
