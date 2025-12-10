@@ -196,7 +196,7 @@ else:
         with st.chat_message("model", avatar="🤖"):
             st.markdown(text_resp)
             if st.session_state.audio_on or force_voice_output:
-                generar_y_reproducir_audio(text_resp, st.session_state.sexo_select
+                generar_y_reproducir_audio(text_resp, st.session_state.sexo_select)
    
         # 6. Actualización del historial de mensajes
         st.session_state["messages"].append({"role": "user", "content": prompt_to_process})
