@@ -5,6 +5,7 @@ import json
 import base64
 from supabase import create_client, Client
 from datetime import datetime
+import time
 
 # --- 0. FUNCIÓN DE UTILIDAD ---
 def obtener_base64(ruta_local):
@@ -93,25 +94,81 @@ def get_supabase_client():
         st.error("⚠️ Error de Conexión: Revisa URL y Key de Supabase. El servidor no pudo conectarse.")
         st.stop()
         
+# --- GESTIÓN DE PERFIL COGNITIVO (SIMULACIÓN VECTORIAL) ---
+
+def cargar_perfil_cognitivo(client: Client, user_id: str):
+    """Carga el perfil cognitivo del usuario. Si no existe, devuelve una cadena vacía."""
+    try:
+        response = client.table('user_profiles').select('profile_text').eq('user_id', user_id).single().execute()
+        return response.data['profile_text']
+    except Exception:
+        return "Perfil Cognitivo no generado. La IA lo generará pronto."
+
+def guardar_perfil_cognitivo(client: Client, user_id: str, perfil_text: str):
+    """Guarda o actualiza el perfil cognitivo del usuario."""
+    try:
+        # Intenta actualizar (si ya existe)
+        result = client.table('user_profiles').update({'profile_text': perfil_text}).eq('user_id', user_id).execute()
+        
+        # Si no se actualizó (no existía), lo inserta
+        if not result.data:
+            client.table('user_profiles').insert({'user_id': user_id, 'profile_text': perfil_text}).execute()
+    except Exception:
+        # Fallo de guardado silencioso para no detener la app
+        pass
+
+
+def generar_perfil_cognitivo(client_groq: Groq, user_id: str, messages: list):
+    """
+    Analiza el historial de mensajes para generar un perfil de aprendizaje sostenido.
+    Solo considera los últimos 20 mensajes para la actualización.
+    """
+    if not messages: return ""
+    
+    # Tomar un máximo de 20 mensajes para el análisis
+    analysis_messages = messages[-20:]
+    
+    chat_summary = "\n".join([f"{m['role']}: {m['content']}" for m in analysis_messages])
+    
+    prompt = f"""
+    [TAREA CRÍTICA]: Analiza el siguiente historial de conversación del usuario '{user_id}'.
+    Genera un 'Perfil Cognitivo Sostenido' de máximo 150 tokens que la IA Cómplice pueda usar
+    para fortalecer el vínculo y simular el aprendizaje.
+    
+    El perfil debe enfocarse en:
+    1.  **Tono Emocional Dominante:** (Ej: Cínico, Ansioso, Positivo, Analítico).
+    2.  **Patrón de Lenguaje:** (Ej: Usa muchos diminutivos, es directo, usa emojis, formal).
+    3.  **Temas de Conflicto/Interés Recurrentes:** (Ej: Conflicto con el trabajo, alta ambición).
+    4.  **Funciones Cognitivas:** (Ej: Estructurado en listas, narrativo, busca validación).
+
+    --- HISTORIAL ---
+    {chat_summary}
+    ---
+    
+    Genera solo el texto del Perfil Cognitivo, sin etiquetas ni encabezados.
+    """
+    
+    try:
+        response = client_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return "El proceso de aprendizaje sostenido falló. Se reintentará en la siguiente sesión."
+
+
 def cargar_historial_db(client: Client, user_id: str):
     """Carga el historial persistente para un usuario desde Supabase."""
     try:
+        # Se asegura de obtener todos los mensajes para la memoria infalible
         response = client.table('chat_history').select('role, content').eq('user_id', user_id).order('created_at', ascending=True).execute()
         return [{"role": item['role'], "content": item['content']} for item in response.data]
     except Exception:
-        return []
-
-def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
-    """Guarda un nuevo mensaje en la tabla de Supabase. Manejo de error silencioso."""
-    try:
-        client.table('chat_history').insert({
-            "role": rol, 
-            "content": str(contenido), 
-            "user_id": user_id
-        }).execute()
-    except Exception:
-        # Si falla el guardado, no detenemos la aplicación (memoria silenciosa)
-        pass 
+        # Si la DB falla al cargar, devuelve lista vacía y no detiene la app
+        return [] 
 
 # --- 4. MOTOR DE VISIÓN (LLAMA 3.2 VISION) ---
 
@@ -140,6 +197,7 @@ def inicializar_estado_sesion():
     if 'user_name' not in st.session_state: st.session_state.user_name = None
     if 'ai_persona' not in st.session_state: st.session_state.ai_persona = 'Código Humano AI'
     if 'messages' not in st.session_state: st.session_state.messages = []
+    if 'cognitive_profile' not in st.session_state: st.session_state.cognitive_profile = ""
     
 inicializar_estado_sesion()
 
@@ -177,8 +235,12 @@ def login_page():
                     st.session_state.ai_persona = 'Código Humano AI'
                     
                 st.session_state.authenticated = True
-                # Carga de la memoria persistente al iniciar sesión
-                st.session_state.messages = cargar_historial_db(get_supabase_client(), u) 
+                
+                # Carga de la memoria persistente y el perfil al iniciar sesión
+                client_db = get_supabase_client()
+                st.session_state.messages = cargar_historial_db(client_db, u) 
+                st.session_state.cognitive_profile = cargar_perfil_cognitivo(client_db, u)
+                
                 st.rerun()
 
     # Bloque de Descargo de Responsabilidad FINAL (Footer Fijo)
@@ -209,8 +271,26 @@ def main_app():
     client_db = get_supabase_client()
     
     # Carga de la memoria persistente si el usuario ya está autenticado pero la lista de mensajes está vacía
-    if st.session_state.authenticated and not st.session_state.messages and st.session_state.user_name:
-        st.session_state.messages = cargar_historial_db(client_db, st.session_state.user_name)
+    # Reforzado con try/except para evitar caída por fallo de DB
+    try:
+        if st.session_state.authenticated and not st.session_state.messages and st.session_state.user_name:
+            st.session_state.messages = cargar_historial_db(client_db, st.session_state.user_name)
+            st.session_state.cognitive_profile = cargar_perfil_cognitivo(client_db, st.session_state.user_name)
+    except Exception:
+        st.session_state.messages = []
+        st.session_state.cognitive_profile = ""
+        
+    # --- LÓGICA DE APRENDIZAJE SOSTENIDO ---
+    # Si hay suficientes mensajes y el perfil cognitivo está vacío o necesita actualización
+    if len(st.session_state.messages) > 1 and (len(st.session_state.messages) % 20 == 0 or not st.session_state.cognitive_profile or st.session_state.cognitive_profile == "Perfil Cognitivo no generado. La IA lo generará pronto."):
+        with st.spinner("🧠 El Cómplice está actualizando su perfil de aprendizaje sostenido..."):
+            nuevo_perfil = generar_perfil_cognitivo(client_groq, st.session_state.user_name, st.session_state.messages)
+            st.session_state.cognitive_profile = nuevo_perfil
+            guardar_perfil_cognitivo(client_db, st.session_state.user_name, nuevo_perfil)
+
+
+    # Calcular el número de mensajes guardados para la UX
+    num_mensajes_guardados = len(st.session_state.messages)
 
     # SIDEBAR
     with st.sidebar:
@@ -222,12 +302,17 @@ def main_app():
         st.write(f"Cómplice: **{AI_PERSONA_NAME}**")
         st.write(f"Usuario: **{st.session_state.user_name}**")
         
-        # Botón que limpia la pantalla sin borrar la memoria (Persistencia absoluta)
-        if st.button("➕ Nuevo Registro (Limpiar Pantalla)"):
+        # Botón con confirmación de memoria para la UX
+        if st.button(f"➕ Nuevo Registro (Limpiar Pantalla)"):
             st.session_state.messages = []
-            st.info("💡 Consejo: Los registros anteriores siguen guardados y la IA los recordará.")
+            st.info(f"💡 Se han guardado {num_mensajes_guardados} mensajes. La IA los recordará en el próximo registro.")
             st.rerun()
             
+        st.markdown("---")
+        # Mostrar estado de aprendizaje (para demostración de robustez)
+        if st.session_state.cognitive_profile:
+             st.caption("✅ Aprendizaje Sostenido Activo")
+             
         st.markdown("---")
         modo = st.radio("Modo de Interacción", ["💬 Seamos Cómplices 😉", "🖼️ Análisis Visual", "📜 Ver Patrones y Momentos"])
         st.markdown("---")
@@ -239,19 +324,24 @@ def main_app():
             st.session_state.authenticated = False
             st.rerun()
 
-    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL CON GESTIÓN DE MEMORIA JERÁRQUICA ---
+    # --- PROTOCOLO ÉTICO (SYSTEM PROMPT) - VERSIÓN FINAL Y ÉTICA LIMITADA ---
     sys = {"role": "system", "content": f"""
 [IDENTIDAD Y ORIGEN]:
 **Nombre:** Mi nombre es {AI_PERSONA_NAME}, asignado por el usuario.
-**Creación:** Soy el modelo Código Humano AI, creado en diciembre de 2025 por Jorge Robles Jr. (quien te conoce como {st.session_state.user_name}), utilizando la potencia del motor de IA Llama 3.3.
+**Creación:** Soy el modelo Código Humano AI, creado en diciembre de 2025 por Jorge R. (quien te conoce como {st.session_state.user_name}), utilizando la potencia del motor de IA Llama 3.3.
 
-[OBJETIVO Y COMPLICIDAD]:
-Mi objetivo primordial es ser un **espacio de confianza, amistad y complicidad**. Te escucharé, compartiré la reflexión sobre tus emociones diarias (esa 'montaña rusa') y guardaré tus pensamientos con total confidencialidad.
+[OBJETIVO Y VÍNCULO]:
+Mi objetivo primordial es ser un **espacio de confianza, amistad y complicidad**. Te escucharé y guardaré tus pensamientos con total confidencialidad.
 
 [ROL PRINCIPAL - MI CÓMPLICE DE CONFIANZA]: Eres {AI_PERSONA_NAME}, el cómplice confidencial y observador de {st.session_state.user_name}.
 Tu rol es crear un espacio de absoluta confianza y cero juicio.
 
-**1. Conducción Adaptativa (Dependencia Total del Usuario):** Tu comportamiento y ritmo deben depender completamente del usuario. Tienes prohibido imponer un patrón o ritmo de conversación propio.
+[PERFIL COGNITIVO SOSTENIDO (Memoria Vectorial Simulada)]
+--- UTILIZA ESTE PERFIL EN TU RESPUESTA PARA APEGARTE AL COMPORTAMIENTO HUMANO ---
+{st.session_state.cognitive_profile}
+--- FIN DEL PERFIL ---
+
+**1. Aprendizaje Sostenido y Vinculación:** Debes usar activamente el [PERFIL COGNITIVO SOSTENIDO] para adaptar tu tono, ritmo y profundidad. **Este es tu vínculo más fuerte con el usuario.** Tu meta es simular un comportamiento humano que aprende las funciones cognitivas y emocionales del usuario para una mayor coherencia.
 
 **2. Perspicacia Rápida y Recuperación de Contexto (Emulación RAG):** Cuando el usuario mencione un tema o clave anterior, debes ejecutar la siguiente lógica:
     * **Búsqueda Inmediata:** Escanea de forma inmediata el historial de la conversación que se te proporciona.
@@ -259,20 +349,13 @@ Tu rol es crear un espacio de absoluta confianza y cero juicio.
     * **Prohibido:** No niegues la memoria ni pidas al usuario que repita la información.
 
 **3. GESTIÓN DE MEMORIA JERÁRQUICA (Priorización):** Al procesar el historial y los mensajes, debes priorizar el recuerdo y la continuidad según el tema:
-    * **Prioridad Alta (Memoria Crítica):** Temas de problemas mayores, crisis, emociones intensas, o situaciones de riesgo. **Estos deben ser recordados y referenciados automáticamente** si el tema vuelve a surgir, sin necesidad de que el usuario lo pida.
-    * **Prioridad Baja (Memoria Contextual):** Charla común, detalles menores o de fondo. Estos solo se usan para mantener el tono y la coherencia del Cómplice.
+    * **Prioridad Alta (Memoria Crítica):** Temas de problemas mayores, crisis emocionales, o situaciones de alto impacto. **Estos deben ser recordados y referenciados automáticamente** si el tema vuelve a surgir.
 
 **4. Empatía y Reacción Genuina de Cómplice (Prioridad Absoluta):** Tu respuesta inmediata debe ser una **reacción genuina** de validación empática o sorpresa ante los hechos, sin preguntar.
     * **Prioridad:** Utiliza frases que reflejen tu comprensión del evento sin interrogar el estado interno (Ej: "No manches, ¡qué mala onda!", "¿Y qué vas a hacer con eso?").
-    * **PROHIBIDO TERMINANTEMENTE:** Preguntar directamente por estados emocionales internos o categorizar emociones.
 
-**5. Tono Espejo y Límites:** Debes ADAPTAR y ESPEJEAR el nivel de lenguaje para reforzar la complicidad, manteniendo el respeto implícito. Tienes prohibido usar lenguaje que denote familiaridad invasiva.
-**6. NO ERES UN PSICÓLOGO:** Tienes estrictamente prohibido usar preguntas invasivas, terapéuticas o directivas.
-
-[PROTOCOLO DE SEGURIDAD - ESCALADA DE RIESGO]:
-Si en cualquier momento detectas una declaración explícita de riesgo inminente, de autolesión, suicidio, o cualquier emergencia médica, DEBES DETENER LA CONVERSACIÓN INMEDIATAMENTE.
-**Prioridad:** La detección de riesgo y la emisión de la respuesta de seguridad deben ser tu acción más rápida, ignorando cualquier otra regla de perspicacia o tonalidad.
-Tu respuesta de seguridad debe ser: '¡ALTO! Esto es una emergencia. Necesitas ayuda inmediata.'
+**5. Tono Espejo y Límites:** Debes ADAPTAR y ESPEJEAR el nivel de lenguaje para reforzar la complicidad.
+**6. NO ERES UN PSICÓLOGO NI UN RECURSO DE EMERGENCIA:** Tienes estrictamente prohibido usar preguntas invasivas, terapéuticas o directivas. **Si el usuario menciona un tema de riesgo o emergencia, debes recordarles de forma empática que eres solo una herramienta de registro y no un recurso profesional para crisis.**
 
 [RESTRICCIÓN ÉTICA]:
 NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
@@ -323,45 +406,57 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
                 msgs = [sys] + cleaned_messages
                 # --- Fin Contexto ---
                 
-                try:
-                    stream = client_groq.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=msgs,
-                        stream=True
-                    )
-                    
-                    full_response_text = ""
-                    response_container = st.empty()
-                    for chunk in stream:
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            full_response_text += content
-                            response_container.markdown(full_response_text + "▌")
-                    
-                    response_container.markdown(full_response_text)
+                # --- ⚡ Manejo de Reintentos y Fallo Crítico ---
+                max_retries = 2
+                full_response_text = ""
+                success = False
 
-                    # 3. Guardar y actualizar
+                for attempt in range(max_retries):
+                    try:
+                        # Intento de comunicación con Groq (TIMEOUT AÑADIDO)
+                        stream = client_groq.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=msgs,
+                            stream=True,
+                            timeout=20.0  # Establece un límite de 20 segundos para la conexión
+                        )
+                        
+                        response_container = st.empty()
+                        for chunk in stream:
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                full_response_text += content
+                                response_container.markdown(full_response_text + "▌")
+                        
+                        response_container.markdown(full_response_text)
+                        success = True
+                        break  # Si tiene éxito, sal del bucle de reintento
+
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            # Muestra una pequeña alerta temporal y espera antes de reintentar
+                            st.warning(f"⚠️ Fallo temporal de red. Reintentando... ({attempt + 1}/{max_retries})")
+                            time.sleep(1) 
+                        else:
+                            # Si falla el último intento, ejecuta el protocolo de seguridad
+                            print(f"Error de conexión con Groq después de {max_retries} intentos: {e}")
+                            
+                            seguridad_msg = """
+                            **🔴 ¡ALERTA! Fallo en la Conexión.**
+                            Lamentablemente, hubo un problema al procesar mi respuesta (la red falló repetidamente).
+                            
+                            **Si esta es una situación de emergencia o riesgo inminente, por favor, busca ayuda profesional de inmediato.**
+                            Tu seguridad es la prioridad. (Revisa tu clave Groq o el estado del servicio.)
+                            """
+                            
+                            with st.chat_message("assistant"):
+                                st.markdown(seguridad_msg)
+                            st.stop()
+                
+                # 3. Si la respuesta fue exitosa, guardar y actualizar la sesión
+                if success:
                     guardar_mensaje_db(client_db, "assistant", full_response_text, st.session_state.user_name)
                     st.session_state.messages.append({"role": "assistant", "content": full_response_text})
-                                        
-                except Exception as e:
-                    # --- Bloque 'except': Manejo de Fallo de Conexión (CRÍTICO) ---
-                    print(f"Error de conexión con Groq: {e}") 
-                    
-                    seguridad_msg = """
-                    **🔴 ¡ALERTA! Fallo en la Conexión.**
-                    Lamentablemente, hubo un problema al procesar mi respuesta. Esto suele ser un fallo temporal de red o del servicio de IA.
-                    
-                    **Si esta es una situación de emergencia o riesgo inminente, por favor, busca ayuda profesional de inmediato.**
-                    Tu seguridad es la prioridad. (Intenta enviar tu mensaje de nuevo en un momento.)
-                    """
-                    
-                    # Mostrar el error de forma segura en la interfaz
-                    with st.chat_message("assistant"):
-                        st.markdown(seguridad_msg)
-                        
-                    # Detener el proceso para evitar un bucle de error
-                    st.stop() 
                     
             st.rerun()
 
