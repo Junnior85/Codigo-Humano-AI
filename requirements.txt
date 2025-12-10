@@ -1,6 +1,8 @@
 streamlit
 google-generativeai
-gTTS
-python-dotenv
+gtts
 gspread
 oauth2client
+# NECESARIAS PARA LA MEMORIA VECTORIAL (RAG)
+langchain-chroma
+langchain-google-genai
