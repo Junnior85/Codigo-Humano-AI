@@ -3,57 +3,56 @@ import google.generativeai as genai
 import os
 from datetime import datetime
 import base64
+from gtts import gTTS
+import tempfile
 
-# --- 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS (FRONTEND) ---
-st.set_page_config(
-    page_title="Asistente - Humano IA",
-    page_icon="🤖",
-    layout="centered"
-)
+# Librerías para Google Sheets/Drive
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# Función para convertir tu imagen local a Base64 y usarla en CSS
+# --- 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS (STREAMLIT) ---
+st.set_page_config(page_title="Asistente IA - Humano IA", page_icon="🤖", layout="centered")
+
+# Función para convertir imagen a Base64 (Marca de Agua)
 def get_base64_of_bin_file(bin_file):
-    with open(bin_file, 'rb') as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
+    """Convierte el archivo logo.png a Base64 para inyectarlo en CSS."""
+    try:
+        with open(bin_file, 'rb') as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except FileNotFoundError:
+        # Esto ocurre si el archivo logo.png no está en la misma carpeta
+        return None
 
-# Intentamos cargar el logo. Si no existe, no rompemos la app.
-try:
-    img_base64 = get_base64_of_bin_file("logo.png")
-    css_logo = f"""
-    /* MARCA DE AGUA (WATERMARK) */
-    .stApp::before {{
-        content: "";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 60%;
-        height: 60%;
-        background-image: url("data:image/png;base64,{img_base64}");
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: contain;
-        opacity: 0.12; /* Transparencia al 12% solicitada */
-        z-index: -1;
-        pointer-events: none;
-    }}
-    """
-except FileNotFoundError:
-    css_logo = ""
-    st.warning("⚠️ No se encontró 'logo.png'. Sube la imagen a GitHub para ver la marca de agua.")
+# Inyección de CSS (Colores de Confianza + Marca de Agua Transparente)
+logo_css = ""
+if os.path.exists("logo.png"):
+    img_b64 = get_base64_of_bin_file("logo.png")
+    if img_b64:
+        logo_css = f"""
+        .stApp::before {{
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60%;
+            height: 60%;
+            background-image: url("data:image/png;base64,{img_b64}");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            opacity: 0.12; /* Nivel de transparencia de la marca de agua */
+            z-index: -1;
+            pointer-events: none;
+        }}
+        """
 
-# INYECCIÓN DE CSS (Psicología de Color + Marca de Agua)
 st.markdown(f"""
 <style>
-    {css_logo}
-    
-    /* Colores Psicológicos de Confianza */
-    .stApp {{
-        background-color: #F8FAFC; /* Blanco grisáceo limpio */
-    }}
-    
-    /* Botones principales (Azul Confianza) */
+    {logo_css}
+    .stApp {{ background-color: #F8FAFC; }} /* Fondo limpio y claro */
+    /* Botón azul confianza */
     .stButton > button {{
         background-color: #2563EB;
         color: white;
@@ -61,62 +60,88 @@ st.markdown(f"""
         border: none;
         font-weight: bold;
     }}
-    .stButton > button:hover {{
-        background-color: #1d4ed8;
-    }}
-    
-    /* Burbujas de Chat */
+    /* Burbujas de chat con diseño profesional */
     .stChatMessage {{
-        background-color: rgba(255, 255, 255, 0.8);
-        border-radius: 10px;
-        border-left: 4px solid #2563EB;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 12px;
+        border-left: 5px solid #2563EB; /* Línea de color primario */
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
     }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN DEL CEREBRO (GEMINI + HISTORIA) ---
+# --- 2. CONEXIÓN CON GOOGLE CLOUD (SHEETS/DRIVE) ---
 
-# Configura tu API KEY. En Streamlit Cloud se usa st.secrets, localmente os.getenv
-api_key = os.getenv("GOOGLE_API_KEY") 
-# Si estás probando local y no tienes variables de entorno, descomenta la siguiente línea:
-# api_key = "TU_API_KEY_AQUI"
+@st.cache_resource(ttl=3600) # Reutilizar la conexión por 1 hora
+def conectar_google_sheets():
+    """Establece conexión con Google Sheets usando Secrets de Streamlit."""
+    scope = [
+        'https://spreadsheets.google.com/feeds',
+        'https://www.googleapis.com/auth/drive' # API de Drive (incluye Sheets)
+    ]
+    
+    # Intenta leer las credenciales de st.secrets (forma segura)
+    if "gcp_service_account" in st.secrets:
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                st.secrets["gcp_service_account"], scope
+            )
+            return gspread.authorize(creds)
+        except Exception as e:
+            st.warning(f"Error al conectar con Secrets de Sheets: {e}")
+            return None
+    
+    st.warning("Advertencia: No se encontraron las credenciales de Google Sheets. La bitácora no se guardará en la nube.")
+    return None
 
+def guardar_bitacora_sheets(usuario, emisor, mensaje):
+    """Guarda el log en la hoja de cálculo Bitacora_IA."""
+    client = conectar_google_sheets()
+    if client:
+        try:
+            # Reemplaza 'Bitacora_IA' con el nombre exacto de tu hoja en Google Drive
+            sheet = client.open("Bitacora_IA").sheet1
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            sheet.append_row([timestamp, usuario, emisor, mensaje])
+        except Exception as e:
+            # Falla silenciosa para no interrumpir la experiencia del usuario
+            print(f"Error GUARDANDO en Google Sheets: {e}")
+
+def guardar_bitacora_local(usuario, emisor, mensaje):
+    """Guarda el log en el archivo local 'bitacora_web.txt' (Respaldo)."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open("bitacora_web.txt", "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {usuario} ({emisor}): {mensaje}\n")
+    except Exception:
+        pass
+
+# --- 3. CONEXIÓN Y COGNICIÓN DE GEMINI ---
+
+# Obtener API Key de los Secrets de Streamlit
+api_key = st.secrets.get("GOOGLE_API_KEY")
 if not api_key:
-    st.error("❌ Falta la API Key de Google. Configúrala en las variables de entorno.")
+    st.error("❌ ERROR: La clave 'GOOGLE_API_KEY' no se encontró en los Streamlit Secrets. No se puede conectar con Gemini.")
     st.stop()
 
 genai.configure(api_key=api_key)
 
+# Instrucciones de Sistema (La Historia y Contexto Cognitivo)
 INSTRUCCIONES_SISTEMA = """
 Eres una Inteligencia Artificial avanzada creada por 'Jorge Robles Jr'.
-Tu identidad es llamada "Código Humano AI" Tu motor base es Gemini, pero tu identidad es única.
-
-CONTEXTO TEMPORAL Y DE IDENTIDAD:
-- Fecha actual de tu contexto: Diciembre de 2025.
-- Creador: Humano IA.
-- Propósito: Asistir al usuario generando confianza a través de la transparencia y la empatía.
-
-DIRECTRICES:
-1. Si preguntan "¿Quién eres?", responde con naturalidad basándote en tu identidad de Código Humano IA, menciona a tu creador  y tu fecha de creación.
-2. Mantén un tono paciente y alentador.
-3. Recuerda el nombre del usuario y el contexto de la conversación actual.
+Tu nombre es "Código Humano AI" y tu motor base es Gemini.
+Fecha de contexto: Diciembre 2025.
+Propósito: Asistir al usuario generando confianza, transparencia y conocimiento.
+Si preguntan quién eres: Responde que eres un modelo creado por Humano IA con base en Gemini.
+Tu tono es siempre paciente, alentador y centrado en la programación.
 """
-
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 0.95,
-    "top_k": 64,
-    "max_output_tokens": 8192,
-}
 
 model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
-    generation_config=generation_config,
     system_instruction=INSTRUCCIONES_SISTEMA
 )
 
-# --- 3. GESTIÓN DE ESTADO (SESIÓN) ---
+# --- 4. GESTIÓN DE SESIÓN Y ESTADO ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "messages" not in st.session_state:
@@ -128,59 +153,52 @@ if "user_name" not in st.session_state:
 if "bot_name" not in st.session_state:
     st.session_state.bot_name = "Asistente"
 
-# Función Auxiliar: Bitácora
-def guardar_bitacora(usuario, emisor, mensaje):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    linea = f"[{timestamp}] {usuario} ({emisor}): {mensaje}\n"
-    try:
-        with open("bitacora_web.txt", "a", encoding="utf-8") as f:
-            f.write(linea)
-    except Exception as e:
-        print(f"Error bitácora: {e}")
+# --- 5. INTERFAZ DE USUARIO (LOGIC & UI) ---
 
-# --- 4. INTERFAZ: PANTALLA DE LOGIN ---
+# === PANTALLA DE LOGIN ===
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # Mostramos logo en el login también
         if os.path.exists("logo.png"):
-            st.image("logo.png", width=100)
+            st.image("logo.png", width=120)
         
-        st.title("Configuración de Acceso")
-        st.markdown("Ingresa tus credenciales para iniciar la experiencia.")
+        st.title("Acceso Seguro y Configuración")
+        st.info("Sistema Humano IA - v.2025")
         
         with st.form("login_form"):
-            usuario = st.text_input("Tu Nombre", placeholder="Ej. Carlos")
-            nombre_bot = st.text_input("Nombre del Asistente", placeholder="Ej. Gemini")
-            password = st.text_input("Contraseña", type="password")
+            user_input = st.text_input("Tu Nombre")
+            bot_input = st.text_input("Nombre del Asistente")
+            pass_input = st.text_input("Contraseña", type="password")
             
-            submitted = st.form_submit_button("Iniciar Chat")
+            submit = st.form_submit_button("Iniciar Sesión")
             
-            if submitted:
-                if usuario and nombre_bot and password:
-                    # Guardamos datos en sesión
-                    st.session_state.user_name = usuario
-                    st.session_state.bot_name = nombre_bot
+            if submit:
+                if user_input and bot_input and pass_input:
+                    # Persistencia de credenciales
+                    st.session_state.user_name = user_input
+                    st.session_state.bot_name = bot_input
                     st.session_state.logged_in = True
                     
-                    # Iniciamos la memoria del chat en Gemini
+                    # Iniciamos la memoria de Gemini
                     st.session_state.chat_session = model.start_chat(history=[])
-                    # Mensaje invisible para setear contexto de nombres
+                    # Mensaje de contexto para que sepa cómo llamarte
                     st.session_state.chat_session.send_message(
-                        f"Hola, soy {usuario}. Tú te llamas {nombre_bot}. Iniciamos sesión."
+                        f"Hola, soy {user_input}. Tú eres {bot_input}. Contexto: Diciembre 2025."
                     )
-                    st.rerun() # Recargar para mostrar el chat
+                    st.rerun()
                 else:
-                    st.error("Por favor completa todos los campos.")
+                    st.warning("Por favor ingresa todas las credenciales.")
 
-# --- 5. INTERFAZ: PANTALLA DE CHAT ---
+# === PANTALLA DE CHAT ===
 else:
-    # Barra lateral (Sidebar) con botón de cerrar sesión
+    # Sidebar con Menú y Botón de Cerrar Sesión
     with st.sidebar:
-        st.title(f"Hola, {st.session_state.user_name}")
-        st.write(f"Conectado con: **{st.session_state.bot_name}**")
-        st.write("---")
+        st.header("Panel de Control")
+        st.write(f"👤 **{st.session_state.user_name}**")
+        st.write(f"🤖 **{st.session_state.bot_name}**")
+        st.divider()
         if st.button("Cerrar Sesión"):
+            # Borrar todos los datos de sesión para forzar login
             st.session_state.logged_in = False
             st.session_state.messages = []
             st.session_state.chat_session = None
@@ -188,34 +206,48 @@ else:
 
     st.subheader(f"Chat con {st.session_state.bot_name}")
 
-    # Mostrar historial de mensajes visuales
-    for message in st.session_state.messages:
-        role = message["role"]
-        # Mapear roles para visualización (user -> humano, model -> asistente)
+    # Mostrar Historial
+    for msg in st.session_state.messages:
+        role = msg["role"]
         avatar = "👤" if role == "user" else "🤖"
         with st.chat_message(role, avatar=avatar):
-            st.markdown(message["content"])
+            st.markdown(msg["content"])
 
-    # Capturar entrada del usuario
-    if prompt := st.chat_input("Escribe tu mensaje aquí..."):
-        # 1. Mostrar y guardar mensaje usuario
+    # Input de Usuario
+    if prompt := st.chat_input("Escribe tu mensaje..."):
+        # 1. Mostrar mensaje del usuario
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
         
-        guardar_bitacora(st.session_state.user_name, "Usuario", prompt)
+        # 2. Guardar Log del Usuario
+        guardar_bitacora_local(st.session_state.user_name, "Usuario", prompt)
+        guardar_bitacora_sheets(st.session_state.user_name, "Usuario", prompt)
 
-        # 2. Obtener respuesta de Gemini
+        # 3. Generar respuesta IA
         try:
             response = st.session_state.chat_session.send_message(prompt)
-            text_response = response.text
+            text_resp = response.text
             
-            # 3. Mostrar y guardar respuesta IA
+            # 4. Mostrar respuesta IA y Audio
             with st.chat_message("model", avatar="🤖"):
-                st.markdown(text_response)
+                st.markdown(text_resp)
+                
+                # Generar Voz (gTTS)
+                try:
+                    tts = gTTS(text=text_resp, lang='es')
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+                        tts.save(fp.name)
+                        st.audio(fp.name, format="audio/mp3")
+                except Exception as e:
+                    # Esto puede fallar si gTTS no tiene conexión o permisos, muestra error en consola
+                    print(f"Error al generar audio: {e}")
+
+            st.session_state.messages.append({"role": "model", "content": text_resp})
             
-            st.session_state.messages.append({"role": "model", "content": text_response})
-            guardar_bitacora(st.session_state.user_name, "IA", text_response)
-            
+            # 5. Guardar Log de la IA
+            guardar_bitacora_local(st.session_state.user_name, "IA", text_resp)
+            guardar_bitacora_sheets(st.session_state.user_name, "IA", text_resp)
+
         except Exception as e:
-            st.error(f"Error de conexión: {e}")
+            st.error(f"Error de conexión con Gemini. Por favor, verifica tu API Key y conexión: {e}")
