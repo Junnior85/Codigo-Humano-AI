@@ -5,6 +5,8 @@ from datetime import datetime
 import base64
 from gtts import gTTS
 import tempfile
+
+# Librerías para Google Sheets/Drive (Requiere Secrets)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -13,6 +15,7 @@ st.set_page_config(page_title="Código Humano AI", page_icon="🤖", layout="cen
 
 # Función para la Marca de Agua (Watermark)
 def get_base64_of_bin_file(bin_file):
+    """Convierte el archivo logo.png a Base64 para inyectarlo en CSS."""
     try:
         with open(bin_file, 'rb') as f:
             data = f.read()
@@ -22,8 +25,8 @@ def get_base64_of_bin_file(bin_file):
 
 # Definición del CSS Estructural y Estético
 logo_css = ""
-if os.path.exists("logo.png"):
-    img_b64 = get_base64_of_bin_file("logo.png")
+if os.path.exists("LOGO.png"): # Usamos el nombre de archivo exacto: LOGO.png
+    img_b64 = get_base64_of_bin_file("LOGO.png")
     if img_b64:
         logo_css = f"""
         /* 1. MARCA DE AGUA TRASLÚCIDA EN EL FONDO DEL CHAT */
@@ -45,31 +48,41 @@ if os.path.exists("logo.png"):
         }}
         """
 
+# Inyección de CSS (Diseño Profesional, Colores de Contraste y Estructura)
 st.markdown(f"""
 <style>
     {logo_css}
-    .stApp {{ background-color: #F8FAFC; }}
+    /* Fondo limpio y forzar texto oscuro sobre fondo claro */
+    .stApp {{ background-color: #F0F2F5; color: #1E293B; }} 
 
     /* 2. DISEÑO DE LA TARJETA DE LOGIN (PROFESIONAL Y CENTRADO) */
     div.stForm {{
         border: 1px solid #E2E8F0;
         border-radius: 12px;
         padding: 30px;
-        background-color: white;
+        background-color: white; /* Tarjeta blanca para contraste */
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
         width: 100%;
-        margin-top: 20px;
+        margin-top: 15px; 
     }}
-    .css-1r6dm7m {{ padding-top: 50px; }}
+    /* Ajustes de espaciado y centrado */
+    .css-1r6dm7m {{ padding-top: 50px; }} 
 
-    /* 3. ESTILOS DE INPUTS */
+    /* 3. ESTILOS DE INPUTS (VISIBILIDAD ASEGURADA Y CONTRASTE) */
     .stTextInput > div > div > input,
-    .stTextInput > div > div > input[type="password"] {{
+    .stTextInput > div > div > input[type="password"],
+    .stTextInput label,
+    .stTextInput input,
+    .stMarkdown, .stSidebar * {{
+        /* Asegurar color de texto oscuro y fondo blanco para visibilidad */
+        color: #1E293B !important; 
+        background-color: white !important; 
         border: 1px solid #CBD5E1;
         border-radius: 8px;
-        background-color: white;
-        color: #1E293B;
     }}
+    
+    /* Títulos (Asegurar que sean oscuros) */
+    h1, h2, h3 {{ color: #1E293B !important; }}
 
     /* 4. BOTONES (Azul de Confianza) */
     .stButton > button {{
@@ -90,8 +103,11 @@ st.markdown(f"""
     }}
     
     /* Centrado del logo en el login */
-    .css-1v3psu5 {{ text-align: center; }}
-    h1 {{ text-align: center; color: #1E293B; }}
+    .stImage > img {{ 
+        margin-left: auto;
+        margin-right: auto;
+        display: block; 
+    }}
     
 </style>
 """, unsafe_allow_html=True)
@@ -105,6 +121,7 @@ def conectar_google_sheets():
         'https://spreadsheets.google.com/feeds',
         'https://www.googleapis.com/auth/drive'
     ]
+    
     if "gcp_service_account" in st.secrets:
         try:
             creds = ServiceAccountCredentials.from_json_keyfile_dict(
@@ -136,19 +153,15 @@ def guardar_bitacora_local(usuario, emisor, mensaje):
     except Exception:
         pass
 
-# Función para generar y reproducir audio, limpiando el archivo temporal
 def generar_y_reproducir_audio(texto):
-    """Genera audio con gTTS, lo reproduce en Streamlit y borra el archivo."""
+    """Genera audio con gTTS, lo reproduce en Streamlit y borra el archivo temporal."""
     try:
         tts = gTTS(text=texto, lang='es')
-        # Usamos un archivo temporal
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
             tts.save(fp.name)
             audio_path = fp.name
         
         st.audio(audio_path, format="audio/mp3")
-        
-        # Eliminamos el archivo temporal después de la reproducción
         os.unlink(audio_path)
     except Exception as e:
         print(f"Error al generar audio: {e}")
@@ -181,7 +194,6 @@ model = genai.GenerativeModel(
 )
 
 # --- 4. GESTIÓN DE SESIÓN Y ESTADO ---
-# Inicialización de st.session_state (variables de sesión)
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "messages" not in st.session_state:
@@ -200,12 +212,15 @@ if "bot_name" not in st.session_state:
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if os.path.exists("logo.png"):
+        LOGO_LOGIN_FILE = "LOGO.png" # Usamos el nombre de archivo exacto: LOGO.png
+        
+        if os.path.exists(LOGO_LOGIN_FILE):
+            # 1. LOGO GRANDE Y SÓLIDO (Punto focal atractivo)
             st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-            st.image("logo.png", width=150)
+            st.image(LOGO_LOGIN_FILE, use_column_width=True) 
             st.markdown("</div>", unsafe_allow_html=True)
         
-        # El formulario actúa como la tarjeta gracias al CSS
+        # 2. CUESTIONARIO: El formulario (tarjeta de login) INMEDIATAMENTE debajo
         with st.form("login_form"):
             st.subheader("Acceso Seguro y Configuración") 
             st.markdown("Sistema Código Humano AI - **v.2025**", unsafe_allow_html=True) 
@@ -215,7 +230,7 @@ if not st.session_state.logged_in:
             bot_input = st.text_input("Nombre del Modelo (Código Humano AI)", placeholder="Ej. Apolo o IA")
             pass_input = st.text_input("Contraseña", type="password", placeholder="••••••••")
             
-            submit = st.form_submit_button("Iniciar Chat") 
+            submit = st.form_submit_button("Iniciar Chat")
             
             if submit:
                 if user_input and bot_input and pass_input:
@@ -241,7 +256,7 @@ else:
         st.write(f"👤 Conectado como: **{st.session_state.user_name}**")
         st.write(f"🤖 Asistente: **{st.session_state.bot_name}**")
         st.divider()
-        st.button("⚙️ Ajustes de Voz (Añadir funcionalidad)", disabled=True)
+        st.button("⚙️ Ajustes de Voz", disabled=True)
         
         if st.button("Cerrar Sesión"):
             st.session_state.logged_in = False
@@ -272,12 +287,10 @@ else:
             response = st.session_state.chat_session.send_message(prompt)
             text_resp = response.text
             
-            # 3. Mostrar respuesta IA, Audio y loguear
+            # 3. Mostrar respuesta IA, Audio y loguear (Multimodalidad)
             with st.chat_message("model", avatar="🤖"):
                 st.markdown(text_resp) # Se escribe el texto
-                
-                # Generar Voz (gTTS) - Se escucha la respuesta
-                generar_y_reproducir_audio(text_resp)
+                generar_y_reproducir_audio(text_resp) # Se reproduce el audio
 
             st.session_state.messages.append({"role": "model", "content": text_resp})
             guardar_bitacora_local(st.session_state.user_name, "IA", text_resp)
