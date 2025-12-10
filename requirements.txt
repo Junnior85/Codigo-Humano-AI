@@ -3,9 +3,9 @@ google-generativeai
 gtts
 gspread
 oauth2client
-# Librería CRÍTICA para el Dictado Real (Web Speech API bridge)
-streamlit-speech-to-text 
-# Librerías RAG/Vectorial
+# 🌟 CRÍTICO: Este es el nombre correcto del componente de dictado
+streamlit-mic-recorder 
+# Dependencias RAG
 langchain-chroma
 langchain-google-genai
 langchain-core
