@@ -333,7 +333,23 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
                     st.session_state.messages.append({"role": "assistant", "content": full_response_text})
                                         
                 except Exception as e:
-                    st.error(f"Error de conexión con la IA. Verifica la clave GROQ. Detalle: {type(e).__name__}")
+                    # --- Bloque 'except': Manejo de Fallo de Conexión (CRÍTICO) ---
+                    print(f"Error de conexión con Groq: {e}") 
+                    
+                    seguridad_msg = """
+                    **🔴 ¡ALERTA! Fallo en la Conexión.**
+                    Lamentablemente, hubo un problema al procesar mi respuesta. Esto suele ser un fallo temporal de red o del servicio de IA.
+                    
+                    **Si esta es una situación de emergencia o riesgo inminente, por favor, busca ayuda profesional de inmediato.**
+                    Tu seguridad es la prioridad. (Intenta enviar tu mensaje de nuevo en un momento.)
+                    """
+                    
+                    # Mostrar el error de forma segura en la interfaz
+                    with st.chat_message("assistant"):
+                        st.markdown(seguridad_msg)
+                        
+                    # Detener el proceso para evitar un bucle de error
+                    st.stop() 
                     
             st.rerun()
 
