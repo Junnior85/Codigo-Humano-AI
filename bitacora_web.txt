@@ -1,0 +1,137 @@
+from flask import Flask, request, render_template_string
+import datetime
+import os
+
+app = Flask(__name__)
+
+# --- CONFIGURACIÓN Y PLANTILLA HTML ---
+# Incrustamos el HTML aquí para que no tengas que crear carpetas extra.
+# El diseño es oscuro, técnico y limpio.
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Registro v2.0</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            justify_content: center;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 600px;
+        }
+        h1 { border-bottom: 1px solid #333; padding-bottom: 10px; font-size: 1.2rem; color: #888; }
+        .status { color: #4caf50; font-size: 0.8rem; margin-bottom: 20px; }
+        
+        textarea {
+            width: 100%;
+            height: 150px;
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 10px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+        }
+        textarea:focus { border-color: #555; }
+        
+        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
+        
+        button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: inherit;
+            transition: background 0.3s;
+        }
+        
+        .btn-save { background-color: #2c3e50; color: #fff; }
+        .btn-save:hover { background-color: #34495e; }
+        
+        .btn-volatile { background-color: #333; color: #aaa; }
+        .btn-volatile:hover { background-color: #444; color: #fff; }
+        
+        .message { margin-top: 15px; font-size: 0.9rem; min-height: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TERMINAL DE ENTRADA DE DATOS</h1>
+        <div class="status">SISTEMA: EN LÍNEA | ESPERANDO INPUT...</div>
+        
+        <form method="POST">
+            <textarea name="contenido" placeholder="Ingresar datos aquí..." required></textarea>
+            
+            <div class="btn-group">
+                <button type="submit" name="modo" value="guardar" class="btn-save">
+                    [ GUARDAR REGISTRO ]
+                </button>
+                
+                <button type="submit" name="modo" value="volatil" class="btn-volatile">
+                    [ MODO VOLÁTIL / BORRAR ]
+                </button>
+            </div>
+        </form>
+
+        {% if mensaje %}
+        <div class="message" style="color: {{ color }}">> {{ mensaje }}</div>
+        {% endif %}
+        
+        <br><br>
+        <div style="border-top: 1px solid #333; padding-top:10px;">
+            <small style="color:#555">HISTORIAL RECIENTE (Solo lectura):</small>
+            <pre style="color:#777; font-size: 0.8rem; white-space: pre-wrap;">{{ historial }}</pre>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+@app.route('/', methods=['GET', 'POST'])
+def home():
+    mensaje = None
+    color = "#888"
+    
+    if request.method == 'POST':
+        texto = request.form.get('contenido')
+        modo = request.form.get('modo')
+        
+        if texto:
+            fecha_hora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            if modo == 'guardar':
+                # Opción 1: Guardar en disco
+                with open("bitacora_web.txt", "a", encoding="utf-8") as f:
+                    f.write(f"[{fecha_hora}] {texto}\n")
+                mensaje = "DATOS ESCRITOS EN DISCO CORRECTAMENTE."
+                color = "#4caf50" # Verde
+                
+            elif modo == 'volatil':
+                # Opción 2: El desahogo. No guardamos nada.
+                # Técnicamente recibimos el dato y dejamos que la variable muera.
+                mensaje = "BUFFER DE RAM LIMPIADO. DATOS ELIMINADOS."
+                color = "#e53935" # Rojo suave
+
+    # Leemos el historial para mostrarlo abajo (solo las ultimas lineas)
+    historial = ""
+    if os.path.exists("bitacora_web.txt"):
+        with open("bitacora_web.txt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            historial = "".join(lines[-5:]) # Muestra solo las últimas 5 entradas
+
+    return render_template_string(HTML_TEMPLATE, mensaje=mensaje, color=color, historial=historial)
+
+if __name__ == '__main__':
+    # debug=True permite ver errores si algo falla
+    app.run(debug=True, port=5000)
