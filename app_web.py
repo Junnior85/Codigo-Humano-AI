@@ -87,7 +87,6 @@ def generar_y_reproducir_audio(texto, sexo_select):
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tts.save(tmp.name)
         st.audio(tmp.name, format="audio/mp3")
-        # No borramos inmediatamente para evitar error de carga
     except Exception:
         pass
 
@@ -125,7 +124,7 @@ else:
             st.rerun()
 
     st.session_state.bot_name = st.session_state.bot_name_session
-
+   
     # --- CHAT WINDOW ---
     st.subheader(f"Chat con {st.session_state.bot_name}")
 
@@ -197,12 +196,10 @@ else:
             st.markdown(text_resp)
             if st.session_state.audio_on or force_voice_output:
                 generar_y_reproducir_audio(text_resp, st.session_state.sexo_select)
-   
+
         # 6. Actualización del historial de mensajes
         st.session_state["messages"].append({"role": "user", "content": prompt_to_process})
         st.session_state["messages"].append({"role": "model", "content": text_resp})
 
-        # 7. Refresco controlado (sin forzar removeChild error)
-       
-        # En lugar de st.rerun() inmediato, limpiamos el input y dejamos que Streamlit refresque naturalmente
-        st.session_state["prompt_input"] = ""     
+        # 7. Refresco controlado
+        st.session_state["prompt_input"] = ""
