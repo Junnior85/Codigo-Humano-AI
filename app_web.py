@@ -5,8 +5,6 @@ from datetime import datetime
 import base64
 from gtts import gTTS
 import tempfile
-
-# Librerías para Google Sheets/Drive (Requiere Secrets)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -15,7 +13,6 @@ st.set_page_config(page_title="Código Humano AI", page_icon="🤖", layout="cen
 
 # Función para la Marca de Agua (Watermark)
 def get_base64_of_bin_file(bin_file):
-    """Convierte el archivo logo.png a Base64 para inyectarlo en CSS."""
     try:
         with open(bin_file, 'rb') as f:
             data = f.read()
@@ -25,11 +22,11 @@ def get_base64_of_bin_file(bin_file):
 
 # Definición del CSS Estructural y Estético
 logo_css = ""
-if os.path.exists("LOGO.png"): # Usamos el nombre de archivo exacto: LOGO.png
+if os.path.exists("LOGO.png"):
     img_b64 = get_base64_of_bin_file("LOGO.png")
     if img_b64:
         logo_css = f"""
-        /* 1. MARCA DE AGUA TRASLÚCIDA EN EL FONDO DEL CHAT */
+        /* 1. MARCA DE AGUA TRASLÚCIDA EN EL FONDO DEL CHAT (Ajustado para fondo oscuro) */
         .stApp::before {{
             content: "";
             position: absolute;
@@ -42,47 +39,49 @@ if os.path.exists("LOGO.png"): # Usamos el nombre de archivo exacto: LOGO.png
             background-repeat: no-repeat;
             background-position: center;
             background-size: contain;
-            opacity: 0.12; /* Nivel de transparencia de la marca de agua */
+            opacity: 0.25; /* Aumentamos la opacidad para que se vea sobre el fondo oscuro */
             z-index: -1;
             pointer-events: none;
+            /* Filtro opcional: invertir colores o hacerlo gris para que contraste menos */
+            filter: grayscale(100%) brightness(150%); 
         }}
         """
 
-# Inyección de CSS (Diseño Profesional, Colores de Contraste y Estructura)
+# Inyección de CSS (DARK MODE PROFESIONAL Y CONTRASTE)
 st.markdown(f"""
 <style>
     {logo_css}
-    /* Fondo limpio y forzar texto oscuro sobre fondo claro */
-    .stApp {{ background-color: #F0F2F5; color: #1E293B; }} 
+    /* 1. FONDO PRINCIPAL OSCURO */
+    .stApp {{ background-color: #1E293B; color: #F8FAFC; }} /* Fondo Negro/Gris Oscuro */
 
     /* 2. DISEÑO DE LA TARJETA DE LOGIN (PROFESIONAL Y CENTRADO) */
     div.stForm {{
-        border: 1px solid #E2E8F0;
+        border: 1px solid #334155;
         border-radius: 12px;
         padding: 30px;
-        background-color: white; /* Tarjeta blanca para contraste */
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        background-color: #334155; /* Tarjeta Gris Oscuro */
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
         width: 100%;
         margin-top: 15px; 
     }}
     /* Ajustes de espaciado y centrado */
     .css-1r6dm7m {{ padding-top: 50px; }} 
 
-    /* 3. ESTILOS DE INPUTS (VISIBILIDAD ASEGURADA Y CONTRASTE) */
+    /* 3. ESTILOS DE INPUTS (Visibilidad y Tema Oscuro) */
     .stTextInput > div > div > input,
     .stTextInput > div > div > input[type="password"],
     .stTextInput label,
     .stTextInput input,
     .stMarkdown, .stSidebar * {{
-        /* Asegurar color de texto oscuro y fondo blanco para visibilidad */
-        color: #1E293B !important; 
-        background-color: white !important; 
-        border: 1px solid #CBD5E1;
+        /* Asegurar color de texto claro sobre inputs oscuros */
+        color: #F8FAFC !important; /* Texto Blanco */
+        background-color: #475569 !important; /* Fondo de Input Gris más oscuro */
+        border: 1px solid #64748B;
         border-radius: 8px;
     }}
     
-    /* Títulos (Asegurar que sean oscuros) */
-    h1, h2, h3 {{ color: #1E293B !important; }}
+    /* Títulos y Subtítulos (Asegurar que sean claros) */
+    h1, h2, h3, h4 {{ color: #F8FAFC !important; }}
 
     /* 4. BOTONES (Azul de Confianza) */
     .stButton > button {{
@@ -94,12 +93,12 @@ st.markdown(f"""
     }}
     .stButton > button:hover {{ background-color: #1d4ed8; }}
 
-    /* 5. BURBUJAS DE CHAT */
+    /* 5. BURBUJAS DE CHAT (Claras sobre fondo oscuro) */
     .stChatMessage {{
-        background-color: rgba(255, 255, 255, 0.95);
+        background-color: #334155; /* Burbujas de chat oscuras */
         border-radius: 12px;
         border-left: 5px solid #2563EB;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }}
     
     /* Centrado del logo en el login */
@@ -116,7 +115,6 @@ st.markdown(f"""
 
 @st.cache_resource(ttl=3600)
 def conectar_google_sheets():
-    """Establece conexión con Google Sheets usando Secrets de Streamlit."""
     scope = [
         'https://spreadsheets.google.com/feeds',
         'https://www.googleapis.com/auth/drive'
@@ -134,7 +132,6 @@ def conectar_google_sheets():
     return None
 
 def guardar_bitacora_sheets(usuario, emisor, mensaje):
-    """Guarda el log en la hoja de cálculo Bitacora_IA."""
     client = conectar_google_sheets()
     if client:
         try:
@@ -145,7 +142,6 @@ def guardar_bitacora_sheets(usuario, emisor, mensaje):
             print(f"Error GUARDANDO en Google Sheets: {e}")
 
 def guardar_bitacora_local(usuario, emisor, mensaje):
-    """Guarda el log en el archivo local 'bitacora_web.txt' (Respaldo)."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
         with open("bitacora_web.txt", "a", encoding="utf-8") as f:
@@ -154,7 +150,6 @@ def guardar_bitacora_local(usuario, emisor, mensaje):
         pass
 
 def generar_y_reproducir_audio(texto):
-    """Genera audio con gTTS, lo reproduce en Streamlit y borra el archivo temporal."""
     try:
         tts = gTTS(text=texto, lang='es')
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
@@ -208,7 +203,7 @@ if "bot_name" not in st.session_state:
 
 # --- 5. INTERFAZ DE USUARIO (LOGIC & UI) ---
 
-# === PANTALLA DE LOGIN (Con Tarjeta Profesional) ===
+# === PANTALLA DE LOGIN (DARK MODE) ===
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -216,7 +211,7 @@ if not st.session_state.logged_in:
         
         if os.path.exists(LOGO_LOGIN_FILE):
             # 1. LOGO GRANDE Y SÓLIDO (Punto focal atractivo)
-            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; margin-bottom: 20px;'>", unsafe_allow_html=True)
             st.image(LOGO_LOGIN_FILE, use_column_width=True) 
             st.markdown("</div>", unsafe_allow_html=True)
         
@@ -234,12 +229,10 @@ if not st.session_state.logged_in:
             
             if submit:
                 if user_input and bot_input and pass_input:
-                    # Persistencia de credenciales
                     st.session_state.user_name = user_input
                     st.session_state.bot_name = bot_input
                     st.session_state.logged_in = True
                     
-                    # Iniciamos la memoria de Gemini
                     st.session_state.chat_session = model.start_chat(history=[])
                     st.session_state.chat_session.send_message(
                         f"Hola, soy {user_input}. Tú eres {bot_input}. Contexto: Diciembre 2025."
@@ -248,7 +241,7 @@ if not st.session_state.logged_in:
                 else:
                     st.warning("Por favor ingresa todas las credenciales.")
 
-# === PANTALLA DE CHAT (Con Marca de Agua y Burbujas) ===
+# === PANTALLA DE CHAT (DARK MODE CON MARCA DE AGUA) ===
 else:
     # Sidebar con Menú
     with st.sidebar:
