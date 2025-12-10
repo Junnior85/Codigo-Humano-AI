@@ -3,7 +3,9 @@ google-generativeai
 gtts
 gspread
 oauth2client
-# NECESARIAS PARA LA MEMORIA VECTORIAL (RAG)
+# Librería CRÍTICA para el Dictado Real (Web Speech API bridge)
+streamlit-speech-to-text 
+# Librerías RAG/Vectorial
 langchain-chroma
 langchain-google-genai
 langchain-core
