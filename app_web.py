@@ -1,133 +1,110 @@
 import streamlit as st
-import speech_recognition as sr
-import pyttsx3
-import threading
-import time
-from datetime import datetime
-import queue
+import datetime
+import os
+from dotenv import load_dotenv
+import google.generativeai as genai
+from gtts import gTTS
+import tempfile
 
-# --- CONFIGURACIÓN E INICIALIZACIÓN ---
+# 1. Configuración Inicial
+load_dotenv() # Carga las contraseñas del archivo .env
+st.set_page_config(page_title="Terminal Personal", page_icon="📓", layout="centered")
 
-# Cola para comunicar el hilo de voz con la interfaz visual
-if 'chat_queue' not in st.session_state:
-    st.session_state.chat_queue = []
+# Configurar la IA (Google Gemini)
+api_key = os.getenv("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-pro')
+else:
+    model = None
 
-# Variable de control para detener el hilo al cerrar
-if 'run_assistant' not in st.session_state:
-    st.session_state.run_assistant = False
+# --- FUNCIONES AUXILIARES ---
 
-# Variables globales para el manejo de hilos de audio
-audio_queue = queue.Queue()
-interruption_flag = threading.Event()
+def guardar_bitacora(texto):
+    fecha = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open("bitacora_web.txt", "a", encoding="utf-8") as f:
+        f.write(f"[{fecha}] {texto}\n")
 
-def inicializar_motor_voz():
-    """Configura el motor de texto a voz"""
-    engine = pyttsx3.init()
-    # Puedes ajustar la velocidad aquí
-    engine.setProperty('rate', 190) 
-    return engine
+def texto_a_audio(texto):
+    """Convierte la respuesta de la IA a audio (voz amigable)"""
+    tts = gTTS(text=texto, lang='es')
+    # Guardamos en un archivo temporal para reproducirlo
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+        tts.save(fp.name)
+        return fp.name
 
-def hablar_con_interrupcion(texto, engine):
-    """
-    Lee el texto frase por frase, verificando si hay interrupción.
-    """
-    frases = texto.split('.')
-    interruption_flag.clear()
+# --- INTERFAZ GRÁFICA (Streamlit) ---
+
+st.title("SISTEMA DE REGISTRO v3.0")
+st.markdown("---")
+
+# Usamos pestañas para separar las funciones (Privacidad vs Ayuda)
+tab1, tab2, tab3 = st.tabs(["💾 Bitácora", "🔥 Modo Volátil", "🤖 Compañero"])
+
+# --- TAB 1: BITÁCORA (El Diario Clásico) ---
+with tab1:
+    st.header("Archivo Permanente")
+    st.caption("Lo que escribas aquí quedará guardado para siempre.")
     
-    for frase in frases:
-        if interruption_flag.is_set():
-            print(">>> AUDIO INTERRUMPIDO <<<")
-            engine.stop()
-            break
-        
-        if frase.strip():
-            engine.say(frase)
-            engine.runAndWait()
-
-def logica_del_asistente():
-    """
-    Este es el 'Cerebro' que corre en segundo plano.
-    Escucha -> Procesa -> Habla -> Repite.
-    """
-    r = sr.Recognizer()
-    mic = sr.Microphone()
-    engine = inicializar_motor_voz()
+    entrada = st.text_area("Escribe tu día:", height=150, key="input_bitacora")
     
-    # Ajuste inicial de ruido
-    with mic as source:
-        r.adjust_for_ambient_noise(source, duration=1)
+    if st.button("Guardar en Disco", type="primary"):
+        if entrada:
+            guardar_bitacora(entrada)
+            st.success("✅ Entrada registrada en la memoria del sistema.")
+        else:
+            st.warning("El campo está vacío.")
 
-    while True:
-        try:
-            # 1. ESCUCHAR (Modo pasivo para detectar interrupción o comandos)
-            with mic as source:
-                # listen_in_background es complejo de manejar con pyttsx3 en el mismo hilo,
-                # así que usamos listen con timeout corto para verificar banderas.
-                try:
-                    audio = r.listen(source, timeout=1, phrase_time_limit=5)
-                except sr.WaitTimeoutError:
-                    continue # Nadie habló, seguimos el ciclo
+    # Ver historial
+    with st.expander("Ver Historial Reciente"):
+        if os.path.exists("bitacora_web.txt"):
+            with open("bitacora_web.txt", "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                for line in lines[-5:]:
+                    st.text(line.strip())
+        else:
+            st.info("No hay registros aún.")
 
-            # Si detectamos audio mientras el asistente hablaba, activamos la bandera
-            if engine._inLoop: 
-                interruption_flag.set()
-                engine.stop()
+# --- TAB 2: MODO VOLÁTIL (El Desahogo) ---
+with tab2:
+    st.header("Buffer Temporal (RAM)")
+    st.caption("Escribe para soltar. Los datos serán eliminados al procesar.")
+    
+    desahogo = st.text_area("Zona de descarga mental:", height=150, key="input_volatil")
+    
+    if st.button("Liberar y Borrar", type="secondary"):
+        if desahogo:
+            st.info("Procesando datos...")
+            # Aquí no guardamos nada. Simplemente limpiamos.
+            st.empty() 
+            st.error("🗑️ Datos eliminados permanentemente del sistema.")
+            # Un pequeño truco psicológico: reiniciar la app para borrar visualmente
+            st.rerun()
 
-            # 2. PROCESAR TEXTO
-            try:
-                texto_usuario = r.recognize_google(audio, language="es-ES")
-                timestamp = datetime.now().strftime("%H:%M:%S")
+# --- TAB 3: COMPAÑERO (La IA Empática) ---
+with tab3:
+    st.header("Interfaz de Asistencia")
+    st.caption("Si necesitas retroalimentación, el sistema está escuchando.")
+    
+    consulta = st.text_input("¿Qué tienes en mente?", key="input_ai")
+    
+    if st.button("Enviar al Asistente"):
+        if not model:
+            st.error("⚠️ Error: No se detectó la API KEY de Google en el archivo .env")
+        elif consulta:
+            with st.spinner("Analizando..."):
+                # Instrucción para que la IA sea como la "novia perfecta/amigo comprensivo"
+                prompt_sistema = f"""
+                Actúa como un compañero empático, paciente y comprensivo. 
+                El usuario te dice: "{consulta}".
+                No des consejos técnicos ni soluciones frías. 
+                Responde de forma cálida, valida sus sentimientos y sé breve.
+                """
+                response = model.generate_content(prompt_sistema)
+                respuesta_ai = response.text
                 
-                # Guardar en historial (Session State)
-                mensaje_usuario = {"rol": "usuario", "texto": texto_usuario, "hora": timestamp}
-                st.session_state.chat_queue.append(mensaje_usuario)
+                st.success(respuesta_ai)
                 
-                # --- RESPUESTA SIMULADA DEL ASISTENTE ---
-                # Aquí conectarías tu lógica de IA real. Por ahora es un eco inteligente.
-                respuesta_texto = f"He escuchado que dijiste: {texto_usuario}. Si hablas ahora mismo, me callaré inmediatamente para escucharte de nuevo."
-                
-                mensaje_asistente = {"rol": "asistente", "texto": respuesta_texto, "hora": timestamp}
-                st.session_state.chat_queue.append(mensaje_asistente)
-
-                # 3. HABLAR (Con capacidad de ser interrumpido)
-                # Nota: Para una interrupción real perfecta, se necesita un hilo de escucha paralelo.
-                # En este script simple, la interrupción ocurre entre frases.
-                hablar_con_interrupcion(respuesta_texto, engine)
-
-            except sr.UnknownValueError:
-                pass # Ruido no entendido
-
-        except Exception as e:
-            print(f"Error en el ciclo de voz: {e}")
-
-# --- INTERFAZ DE USUARIO (STREAMLIT) ---
-
-st.title("🎙️ Asistente de Voz con Historial")
-st.write("Dicta tu mensaje. El sistema guarda el historial y permite interrupciones.")
-
-# Botón para iniciar el hilo en segundo plano (Singleton)
-if st.button("Iniciar Motor de Voz"):
-    if not st.session_state.run_assistant:
-        st.session_state.run_assistant = True
-        # Ejecutamos la lógica de voz en un hilo separado para no congelar la web
-        hilo_voz = threading.Thread(target=logica_del_asistente, daemon=True)
-        hilo_voz.start()
-        st.success("Sistema escuchando... (Habla al micrófono)")
-
-# Área de Historial (Chat)
-st.divider()
-st.subheader("Historial de Conversación")
-
-# Contenedor para mensajes
-chat_container = st.container()
-
-# Auto-refresco simple para ver los mensajes nuevos que llegan del hilo
-if st.session_state.run_assistant:
-    time.sleep(1) # Pequeña pausa para no saturar CPU
-    st.rerun()
-
-with chat_container:
-    # Renderizar mensajes desde la cola
-    for msg in st.session_state.chat_queue:
-        with st.chat_message(msg["rol"]):
-            st.write(f"**[{msg['hora']}]**: {msg['texto']}")
+                # Generar audio de la respuesta
+                audio_file = texto_a_audio(respuesta_ai)
+                st.audio(audio_file, format="audio/mp3")
