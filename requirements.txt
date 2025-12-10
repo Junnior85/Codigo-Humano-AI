@@ -1,4 +1,6 @@
 streamlit
-supabase
 google-generativeai
-Pillow
+chromadb
+gTTS
+streamlit-mic-recorder
+python-dotenv
