@@ -8,7 +8,7 @@ from datetime import datetime
 import tempfile
 from gtts import gTTS
 from pathlib import Path
-from streamlit_speech_to_text import speech_to_text  # Dictado real
+from streamlit_mic_recorder import mic_recorder  # ✅ dictado correcto
 
 # --- VALIDACIÓN DE SECRETS ---
 if "GOOGLE_API_KEY" not in st.secrets or "MODELO_PRINCIPAL" not in st.secrets:
@@ -138,12 +138,12 @@ else:
     col1, col2, col3 = st.columns([0.5, 0.5, 7])
 
     with col1:
-        mic_transcription = speech_to_text(
-            language="es",
-            start_text="🎤 Dictar",
-            stop_text="⏸️ Parar",
+        mic_result = mic_recorder(
+            start_prompt="🎤 Dictar",
+            stop_prompt="⏸️ Parar",
             key="mic_input_component"
         )
+        mic_transcription = mic_result.get("text") if mic_result else ""
 
     with col2:
         file = st.file_uploader("📎", type=["txt","py","md"], label_visibility="collapsed")
@@ -191,17 +191,18 @@ else:
         guardar_bitacora(st.session_state.get("user_name",""), "Usuario", prompt_to_process)
         guardar_bitacora(st.session_state.get("user_name",""), "IA", text_resp)
 
-         # 5. Mostrar respuesta con salida de voz
+        # 5. Mostrar respuesta con salida de voz
         force_voice_output = True if mic_transcription else False
         with st.chat_message("model", avatar="🤖"):
             st.markdown(text_resp)
-            # La voz se activa si el checkbox está marcado O si se detectó dictado
             if st.session_state.audio_on or force_voice_output:
-                generar_y_reproducir_audio(text_resp, st.session_state.sexo_select)
-
+                generar_y_reproducir_audio(text_resp, st.session_state.sexo_select
+   
         # 6. Actualización del historial de mensajes
         st.session_state["messages"].append({"role": "user", "content": prompt_to_process})
         st.session_state["messages"].append({"role": "model", "content": text_resp})
 
-        # 7. Limpiar y re-renderizar
-        st.rerun()
+        # 7. Refresco controlado (sin forzar removeChild error)
+       
+        # En lugar de st.rerun() inmediato, limpiamos el input y dejamos que Streamlit refresque naturalmente
+        st.session_state["prompt_input"] = ""     
