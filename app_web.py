@@ -170,6 +170,18 @@ def cargar_historial_db(client: Client, user_id: str):
         # Si la DB falla al cargar, devuelve lista vacía y no detiene la app
         return [] 
 
+def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
+    """Guarda un nuevo mensaje en la tabla de Supabase. Manejo de error silencioso."""
+    try:
+        client.table('chat_history').insert({
+            "role": rol, 
+            "content": str(contenido), 
+            "user_id": user_id
+        }).execute()
+    except Exception:
+        # Si falla el guardado, no detenemos la aplicación (memoria silenciosa)
+        pass 
+
 # --- 4. MOTOR DE VISIÓN (LLAMA 3.2 VISION) ---
 
 def analizar_imagen(cliente: Groq, imagen_bytes: bytes, prompt_usuario: str):
