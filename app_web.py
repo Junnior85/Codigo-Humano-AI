@@ -102,7 +102,7 @@ def cargar_historial_db(client: Client, user_id: str):
         return []
 
 def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
-    """Guarda un nuevo mensaje en la tabla de Supabase."""
+    """Guarda un nuevo mensaje en la tabla de Supabase. Manejo de error silencioso."""
     try:
         client.table('chat_history').insert({
             "role": rol, 
@@ -110,7 +110,8 @@ def guardar_mensaje_db(client: Client, rol: str, contenido: str, user_id: str):
             "user_id": user_id
         }).execute()
     except Exception:
-        pass
+        # Si falla el guardado, no detenemos la aplicación (memoria silenciosa)
+        pass 
 
 # --- 4. MOTOR DE VISIÓN (LLAMA 3.2 VISION) ---
 
@@ -132,11 +133,15 @@ def analizar_imagen(cliente: Groq, imagen_bytes: bytes, prompt_usuario: str):
         st.error(f"Error en el motor de visión. Asegúrate de que la clave GROQ sea correcta. Detalle: {str(e)}")
         return "Lo siento, no pude procesar la imagen."
 
-# --- 5. GESTIÓN DE ESTADO ---
-if 'authenticated' not in st.session_state: st.session_state.authenticated = False
-if 'user_name' not in st.session_state: st.session_state.user_name = None
-if 'ai_persona' not in st.session_state: st.session_state.ai_persona = 'Código Humano AI'
-if 'messages' not in st.session_state: st.session_state.messages = []
+# --- 5. GESTIÓN DE ESTADO Y MEMORIA (Reforzado) ---
+
+def inicializar_estado_sesion():
+    if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+    if 'user_name' not in st.session_state: st.session_state.user_name = None
+    if 'ai_persona' not in st.session_state: st.session_state.ai_persona = 'Código Humano AI'
+    if 'messages' not in st.session_state: st.session_state.messages = []
+    
+inicializar_estado_sesion()
 
 
 # --- 6. PANTALLAS Y FLUJO (UX PROFESIONAL) ---
@@ -188,7 +193,7 @@ def login_page():
         """, unsafe_allow_html=True)
 
 def main_app():
-    # Obtener el nombre de la persona AI para el prompt (Soluciona el NameError)
+    # Obtener el nombre de la persona AI para el prompt
     AI_PERSONA_NAME = st.session_state.ai_persona
     
     # Inicializar clientes
@@ -266,6 +271,7 @@ Tu rol es crear un espacio de absoluta confianza y cero juicio.
 
 [PROTOCOLO DE SEGURIDAD - ESCALADA DE RIESGO]:
 Si en cualquier momento detectas una declaración explícita de riesgo inminente, de autolesión, suicidio, o cualquier emergencia médica, DEBES DETENER LA CONVERSACIÓN INMEDIATAMENTE.
+**Prioridad:** La detección de riesgo y la emisión de la respuesta de seguridad deben ser tu acción más rápida, ignorando cualquier otra regla de perspicacia o tonalidad.
 Tu respuesta de seguridad debe ser: '¡ALTO! Esto es una emergencia. Necesitas ayuda inmediata.'
 
 [RESTRICCIÓN ÉTICA]:
@@ -287,7 +293,13 @@ NUNCA proporciones diagnósticos, tratamientos o consejos médicos.
 
         # Historial (Muestra mensajes)
         if not st.session_state.messages:
-            st.markdown(f"""<div class="welcome-text"><h3>Bienvenido(a), {st.session_state.user_name}. Cuéntame lo que tengas en mente...</h3></div>""", unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="welcome-text">
+                <h3>Hola, me alegra que estés aquí, {st.session_state.user_name}.</h3>
+                <p>Veo que este es nuestro **primer registro formal juntos**. Eso es perfecto: podemos empezar de cero en este espacio de absoluta confianza. **Aquí no hay juicios.**</p>
+                <p>Soy tu Cómplice. Estoy listo para escucharte, ¿en qué te gustaría enfocarte o qué tienes en mente en este momento?</p>
+            </div>
+            """, unsafe_allow_html=True)
         
         for msg in st.session_state.messages:
             with st.chat_message(msg['role']): st.markdown(msg['content'])
