@@ -1,0 +1,6 @@
+[theme]
+base="dark"
+backgroundColor="#1E293B"       # Fondo principal oscuro
+secondaryBackgroundColor="#334155" # Color de la tarjeta de login y la barra lateral
+textColor="#F8FAFC"             # Texto Blanco/Claro para máxima visibilidad
+font="sans serif"
