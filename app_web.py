@@ -245,4 +245,4 @@ def main():
             user = st.text_input("👤 Tu Nombre (Clave de Sesión)", key="user_name_input")
             bot = st.text_input("🤖 Nombre del Modelo", key="bot_name_input", value=st.session_state.bot_name)
             
-            clave_personal = st.text_input("✨ Tu Palabra Clave Personal",
+            clave_personal = st.text_input("✨ Tu Palabra Clave Personal", type="password", key="clave_personal_input")
