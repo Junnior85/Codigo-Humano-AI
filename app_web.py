@@ -156,8 +156,6 @@ class GestorBitacora:
 
 # --- 4. INTERFAZ Y ESTILOS ---
 
-IDENTIDAD_ORIGEN = "Soy 'Código Humano AI'. Fui creado con el motor Gemini por Jorge Robles Jr. en diciembre de 2025."
-
 def inicializar_session_state():
     """Valores por defecto seguros."""
     defaults = {
@@ -237,12 +235,157 @@ def main():
     # A. Flujo de Login (Login Simplificado con Clave Personal y Disclaimer)
     if not st.session_state.logged_in:
         
+        # 1. CENTRADO ESTABLE DEL LOGO (Corrección de estabilidad)
+        try:
+            if os.path.exists("LOGO.png"):
+                col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
+                with col_logo2:
+                    # Usamos use_column_width para adaptabilidad en el centrado
+                    st.image("LOGO.png", use_column_width=True) 
+        except Exception:
+            pass # Si el logo falla, la aplicación sigue.
+
+        # 2. CENTRADO DEL FORMULARIO
         st.markdown("<div style='display: flex; justify-content: center; flex-direction: column; align-items: center; text-align: center;'>", unsafe_allow_html=True)
-        if os.path.exists("LOGO.png"): st.image("LOGO.png", width=400)
         
         with st.form("login_form", clear_on_submit=True):
             st.subheader("Acceso y Personalización")
             user = st.text_input("👤 Tu Nombre (Clave de Sesión)", key="user_name_input")
             bot = st.text_input("🤖 Nombre del Modelo", key="bot_name_input", value=st.session_state.bot_name)
             
+            # Línea corregida (type="password" y key incluidos)
             clave_personal = st.text_input("✨ Tu Palabra Clave Personal", type="password", key="clave_personal_input")
+            
+            # --- DESCARGO DE RESPONSABILIDAD CRÍTICO ---
+            st.warning("""
+            **⚠️ Advertencia de Seguridad:**
+            Usted es el único responsable de la seguridad de su Palabra Clave. Si elige una clave fácil de adivinar, 
+            su historial puede ser accedido por terceros que conozcan su Nombre.
+            """)
+            
+            if st.form_submit_button("Iniciar Chat"):
+                if user and bot and clave_personal:
+                    st.session_state.update({
+                        "logged_in": True, "user_name": user.strip(), "bot_name": bot,
+                        "chat_initialized": False, "clave_personal": clave_personal 
+                    })
+                    st.rerun()
+                else:
+                    st.error("Por favor, completa tu Nombre y tu Palabra Clave Personal para ingresar.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # B. Interfaz Principal (Contenido del Chat)
+    inicializar_modelo()
+    memoria = GestorMemoria()
+    
+    # 🌟 Sidebar Configuración
+    with st.sidebar:
+        st.title("Código Humano AI") 
+        st.subheader("Personalidad de IA")
+        st.session_state.bot_name_session = st.text_input("🤖 Nombre personalizado", value=st.session_state.bot_name, key="bot_name_session")
+        st.selectbox("🧑 Género", ["Masculino", "Femenino", "No binario"], key="genero_select", index=1 if st.session_state.get('genero_select')=='Femenino' else 0)
+        st.selectbox("🎙️ Voz", ["Femenino (España)", "Masculino (México)"], key="sexo_select", index=0 if st.session_state.get('sexo_select')=='Femenino (España)' else 1)
+        st.selectbox("🎂 Edad percibida", ["Adulto Joven", "Maduro"], key="edad_select", index=0)
+        
+        st.markdown("##### 🌟 Rol/Ejemplo de Conversación")
+        st.session_state.rol_temporal = st.text_area(
+            "Rol", value=st.session_state.get('rol_temporal', ''),
+            placeholder="Ej: 'Hoy eres mi profesor de guitarra'.", height=80, label_visibility="collapsed"
+        )
+            
+        st.session_state.audio_on = st.checkbox("🎧 Reproducción Automática", value=st.session_state.audio_on)
+        st.divider()
+        if st.button("Cerrar Sesión"):
+            st.session_state.clear()
+            st.rerun()
+
+    st.title(f"💬 Chatea con {st.session_state.bot_name}")
+    
+    # Mostrar Historial (Limitado visualmente a los últimos 7)
+    display_messages = st.session_state.messages[-7:]
+    for msg in display_messages:
+        with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
+            st.markdown(msg["content"])
+
+    # D. Captura de Inputs (Formulario estable)
+    with st.form(key="chat_input_form_final", clear_on_submit=True):
+        col1, col2 = st.columns([0.5, 7.5]) 
+        
+        with col1: 
+            mic_data = mic_recorder(start_prompt="🎤", stop_prompt="⏸️", key="mic_input_component_final")
+            mic_transcription = mic_data.get('text', '') if mic_data and 'text' in mic_data else ''
+
+        with col2: 
+            prompt = st.text_input("Escribe tu mensaje...", key="prompt_input_text", label_visibility="collapsed") 
+
+        submitted = st.form_submit_button("Enviar", label_visibility="collapsed")
+
+        # E. Procesamiento del Mensaje
+        prompt_to_process = prompt or mic_transcription or ""
+        
+        if (submitted or prompt_to_process) and prompt_to_process:
+            
+            # 1. Construcción del Prompt (RAG + Rol)
+            contexto_previo = memoria.recuperar(st.session_state.user_name, prompt_to_process, k=5)
+            
+            rol_instruction = ""
+            if st.session_state.rol_temporal:
+                rol_instruction = f"INSTRUCCIÓN DE ROL: Recuerda al modelo que simule el rol: '{st.session_state.rol_temporal}'."
+
+            full_prompt = f"""
+[CONTEXTO RAG]: {contexto_previo}
+[ROL]: {rol_instruction}
+[MENSAJE USUARIO]: {prompt_to_process}
+"""
+            
+            # 2. Mostrar mensaje usuario en UI
+            st.session_state.messages.append({"role": "user", "content": prompt_to_process})
+            
+            # 3. Generar Respuesta IA
+            with st.chat_message("model", avatar="🤖"):
+                with st.spinner(f"{st.session_state.bot_name} está pensando..."):
+                    try:
+                        response = st.session_state.chat_session.send_message(full_prompt)
+                        respuesta_texto = response.text
+                        st.markdown(respuesta_texto)
+                        
+                        # 4. Guardar Memoria y Logs
+                        memoria.guardar(st.session_state.user_name, st.session_state.clave_personal, prompt_to_process, respuesta_texto)
+                        GestorBitacora.registrar(st.session_state.user_name, "Usuario", prompt_to_process)
+                        GestorBitacora.registrar(st.session_state.user_name, "IA", respuesta_texto)
+
+                        # 5. Generar Audio
+                        force_audio = st.session_state.audio_on or (mic_transcription != "")
+                        if force_audio:
+                            GestorAudio.generar_y_reproducir(respuesta_texto, st.session_state.sexo_select)
+
+                        st.session_state.messages.append({"role": "model", "content": respuesta_texto})
+                        
+                    except Exception as e:
+                        st.error(f"Error generando respuesta: {e}. Intenta reiniciar el chat.")
+                        logger.error(f"Error Generación: {e}")
+            
+            st.rerun() 
+
+    # F. ENLACE DE POLÍTICAS Y AVISO DE PRIVACIDAD (Pie de página)
+    st.markdown("""
+        <style>
+            .footer-link {
+                position: fixed; bottom: 5px; left: 50%; 
+                transform: translateX(-50%); font-size: 0.7em; 
+                color: #94A3B8; cursor: pointer;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    with st.expander("Políticas y Aviso de Privacidad"):
+        try:
+            with open("POLITICAS_PRIVACIDAD.md", "r", encoding="utf-8") as f:
+                st.markdown(f.read())
+        except FileNotFoundError:
+            st.warning("El archivo 'POLITICAS_PRIVACIDAD.md' no se encuentra. Crea el archivo.")
+
+if __name__ == "__main__":
+    main()
