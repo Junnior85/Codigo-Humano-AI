@@ -1,0 +1,40 @@
+# 🛡️ POLÍTICAS Y AVISO DE PRIVACIDAD DE CÓDIGO HUMANO AI
+
+**Última Actualización: 12 de Diciembre de 2025**
+
+Bienvenido a Código Humano AI. Su privacidad y la integridad de sus conversaciones son nuestra máxima prioridad. Lea atentamente este aviso antes de interactuar.
+
+---
+
+## 1. Naturaleza del Servicio y Recolección de Datos
+
+### 1.1 Datos Recolectados
+El sistema requiere que el usuario ingrese:
+* **Nombre de Usuario (User Name):** Utilizado para identificar su historial de conversaciones.
+* **Palabra Clave Personal:** Clave secreta que usted elige.
+
+### 1.2 Finalidad de la Recolección
+Los datos de la conversación se recolectan con los siguientes fines:
+* **Memoria a Largo Plazo (RAG):** El contenido de su conversación (preguntas y respuestas) se almacena en una base de datos vectorial (ChromaDB) **filtrada por su Nombre de Usuario y Palabra Clave Personal**. Esto permite que la IA le recuerde en futuras sesiones y mantenga una conversación consistente.
+* **Mejora del Modelo:** Las interacciones se registran en un archivo de bitácora (`bitacora_web.txt`) para monitoreo, auditoría técnica y eventual mejora de la calidad de las respuestas y del comportamiento empático del modelo.
+* **No Compartición:** Su historial no se comparte con terceros.
+
+---
+
+## 2. Seguridad y Descargo de Responsabilidad (Clave Personal)
+
+### 2.1 Responsabilidad del Usuario
+Este sistema utiliza su Nombre de Usuario y Palabra Clave Personal como **única prueba de identidad**.
+* **Usted es el único responsable** de la seguridad y confidencialidad de la Palabra Clave Personal que elija.
+* Si elige una clave o un nombre de usuario obvio, usted acepta que **existe un riesgo** de que terceros puedan acceder a su historial de conversación si adivinan o conocen su combinación de Nombre de Usuario y Clave.
+
+### 2.2 Protección de la Conversación
+* Todas las búsquedas en la memoria a largo plazo (RAG) se realizan con un **filtro estricto** que requiere su Nombre de Usuario. Sin esta credencial, su historial no puede ser recuperado por la IA.
+
+---
+
+## 3. Contacto
+
+Si tiene preguntas sobre estas políticas o sobre cómo se manejan sus datos, por favor, contacte a [Su Nombre o Correo Electrónico de Contacto].
+
+**Al continuar usando este servicio, usted acepta los términos establecidos en este Aviso de Privacidad y Descargo de Responsabilidad.**
