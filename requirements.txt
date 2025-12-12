@@ -3,9 +3,10 @@ google-generativeai
 gtts
 gspread
 oauth2client
-# 🌟 CRÍTICO: Este es el nombre correcto del componente de dictado
-streamlit-mic-recorder 
-# Dependencias RAG
+streamlit-mic-recorder
 langchain-chroma
 langchain-google-genai
 langchain-core
+# Librerías auxiliares requeridas por algunas partes del código o para robustez:
+python-dotenv 
+Pillow
