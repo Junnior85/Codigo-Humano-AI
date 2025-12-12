@@ -125,9 +125,7 @@ class GestorBitacora:
         try:
             if "gcp_service_account" not in st.secrets: return None
                 
-            # AQUÍ OCURRÍA EL ERROR ANTERIORMENTE. VERIFICADO:
             creds_info = st.secrets["gcp_service_account"]
-            
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
             client = gspread.authorize(creds)
@@ -192,11 +190,7 @@ def aplicar_estilos():
     <style>
         {logo_css}
         .main > div {{ background-color: #1E293B !important; }}
-        .stChatInputContainer {{ 
-            position: fixed; bottom: 0; left: 0; right: 0; padding: 10px; 
-            background-color: #1E293B; z-index: 999; 
-            box-shadow: 0 -5px 15px rgba(0,0,0,0.2); 
-        }}
+        /* Eliminamos estilos complejos que puedan romper el layout */
     </style>
     """, unsafe_allow_html=True)
 
@@ -234,155 +228,148 @@ def main():
     inicializar_session_state()
     aplicar_estilos() 
 
-    # A. Flujo de Login (Login Simplificado con Clave Personal y Disclaimer)
+    # A. Flujo de Login (Login Simplificado y Seguro)
     if not st.session_state.logged_in:
         
-        # 1. CENTRADO ESTABLE DEL LOGO
+        # 1. LOGO (Con control de errores silencioso)
         try:
             if os.path.exists("LOGO.png"):
-                col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
-                with col_logo2:
+                col_izq, col_centro, col_der = st.columns([1, 2, 1])
+                with col_centro:
                     st.image("LOGO.png", use_column_width=True) 
         except Exception:
             pass 
 
-        # 2. CENTRADO DEL FORMULARIO
-        st.markdown("<div style='display: flex; justify-content: center; flex-direction: column; align-items: center; text-align: center;'>", unsafe_allow_html=True)
+        # 2. FORMULARIO
+        st.write("") 
+        st.markdown("### 🔐 Acceso Seguro")
         
         with st.form("login_form", clear_on_submit=True):
-            st.subheader("Acceso y Personalización")
-            user = st.text_input("👤 Tu Nombre (Clave de Sesión)", key="user_name_input")
+            user = st.text_input("👤 Tu Nombre", key="user_name_input")
             bot = st.text_input("🤖 Nombre del Modelo", key="bot_name_input", value=st.session_state.bot_name)
             
-            # Línea corregida (Sintaxis completa)
+            # Campo de contraseña
             clave_personal = st.text_input("✨ Tu Palabra Clave Personal", type="password", key="clave_personal_input")
             
-            # --- DESCARGO DE RESPONSABILIDAD CRÍTICO ---
-            st.warning("""
-            **⚠️ Advertencia de Seguridad:**
-            Usted es el único responsable de la seguridad de su Palabra Clave. Si elige una clave fácil de adivinar, 
-            su historial puede ser accedido por terceros que conozcan su Nombre.
-            """)
+            st.info("Nota: Tú eres el responsable de recordar tu clave personal.")
             
-            if st.form_submit_button("Iniciar Chat"):
+            # Botón de envío
+            submit_login = st.form_submit_button("Iniciar Chat", type="primary")
+            
+            if submit_login:
                 if user and bot and clave_personal:
                     st.session_state.update({
-                        "logged_in": True, "user_name": user.strip(), "bot_name": bot,
-                        "chat_initialized": False, "clave_personal": clave_personal 
+                        "logged_in": True, 
+                        "user_name": user.strip(), 
+                        "bot_name": bot,
+                        "chat_initialized": False, 
+                        "clave_personal": clave_personal 
                     })
                     st.rerun()
                 else:
-                    st.error("Por favor, completa tu Nombre y tu Palabra Clave Personal para ingresar.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
+                    st.error("⚠️ Por favor, completa todos los campos.")
         return
 
     # B. Interfaz Principal (Contenido del Chat)
     inicializar_modelo()
     memoria = GestorMemoria()
     
-    # 🌟 Sidebar Configuración
+    # --- SIDEBAR ---
     with st.sidebar:
-        st.title("Código Humano AI") 
-        st.subheader("Personalidad de IA")
+        st.title("⚙️ Configuración") 
         
-        # 🌟 CORRECCIÓN DE SESSION STATE: No asignamos directamente el return al state
-        st.text_input("🤖 Nombre personalizado", value=st.session_state.bot_name, key="bot_name_session") 
-        st.session_state.bot_name = st.session_state.bot_name_session 
+        # Nombre del bot editable (Sin conflicto de session_state)
+        nuevo_nombre = st.text_input("🤖 Nombre IA", value=st.session_state.bot_name)
+        if nuevo_nombre != st.session_state.bot_name:
+            st.session_state.bot_name = nuevo_nombre
         
-        st.selectbox("🧑 Género", ["Masculino", "Femenino", "No binario"], key="genero_select", index=1 if st.session_state.get('genero_select')=='Femenino' else 0)
-        st.selectbox("🎙️ Voz", ["Femenino (España)", "Masculino (México)"], key="sexo_select", index=0 if st.session_state.get('sexo_select')=='Femenino (España)' else 1)
-        st.selectbox("🎂 Edad percibida", ["Adulto Joven", "Maduro"], key="edad_select", index=0)
+        st.selectbox("🧑 Género", ["Masculino", "Femenino", "No binario"], key="genero_select")
+        st.selectbox("🎙️ Voz", ["Femenino (España)", "Masculino (México)"], key="sexo_select")
         
-        st.markdown("##### 🌟 Rol/Ejemplo de Conversación")
+        st.markdown("---")
+        st.markdown("##### 🎭 Rol Temporal")
         st.session_state.rol_temporal = st.text_area(
-            "Rol", value=st.session_state.get('rol_temporal', ''),
-            placeholder="Ej: 'Hoy eres mi profesor de guitarra'.", height=80, label_visibility="collapsed"
+            "Define un rol (opcional)", 
+            value=st.session_state.get('rol_temporal', ''),
+            placeholder="Ej: Eres un experto en historia...", height=100
         )
             
-        st.session_state.audio_on = st.checkbox("🎧 Reproducción Automática", value=st.session_state.audio_on)
-        st.divider()
-        if st.button("Cerrar Sesión"):
+        st.session_state.audio_on = st.toggle("🎧 Audio Automático", value=st.session_state.audio_on)
+        
+        st.markdown("---")
+        if st.button("🚪 Cerrar Sesión", type="primary"):
             st.session_state.clear()
             st.rerun()
 
-    st.title(f"💬 Chatea con {st.session_state.bot_name}")
+    # --- CHAT PRINCIPAL ---
+    st.subheader(f"💬 Chat con {st.session_state.bot_name}")
     
     # Mostrar Historial
-    display_messages = st.session_state.messages[-7:]
-    for msg in display_messages:
+    for msg in st.session_state.messages[-6:]: 
         with st.chat_message(msg["role"], avatar="👤" if msg["role"] == "user" else "🤖"):
             st.markdown(msg["content"])
 
-    # D. Captura de Inputs (Sin st.form para evitar errores de submit button)
-    st.markdown("</div>", unsafe_allow_html=True) 
-    
-    col1, col2 = st.columns([0.5, 7.5]) 
+    # --- ÁREA DE INPUT (Sin st.form para evitar errores) ---
+    st.divider()
+    col_mic, col_text = st.columns([1, 8]) 
             
-    with col1: 
-        mic_data = mic_recorder(start_prompt="🎤", stop_prompt="⏸️", key="mic_input_component_final")
-        mic_transcription = mic_data.get('text', '') if mic_data and 'text' in mic_data else ''
+    with col_mic: 
+        # Micrófono
+        mic_data = mic_recorder(start_prompt="🎤", stop_prompt="⏹️", key="mic_btn")
+        mic_text = mic_data.get('text', '') if mic_data else ''
 
-    with col2: 
-        prompt = st.text_input("Escribe tu mensaje...", key="prompt_input_text", label_visibility="collapsed") 
+    with col_text: 
+        # Caja de texto (Enter para enviar)
+        texto_usuario = st.text_input("Escribe tu mensaje aquí...", key="chat_input_text", label_visibility="collapsed") 
 
-    # E. Procesamiento del Mensaje
-    prompt_to_process = prompt or mic_transcription or ""
+    # Lógica de Envío Unificada
+    prompt_final = texto_usuario or mic_text
     
-    if prompt_to_process:
+    if prompt_final:
+        # 1. Recuperar contexto (RAG)
+        contexto = memoria.recuperar(st.session_state.user_name, prompt_final)
         
-        # 1. Construcción del Prompt
-        contexto_previo = memoria.recuperar(st.session_state.user_name, prompt_to_process, k=5)
-        
-        rol_instruction = ""
+        instruccion_rol = ""
         if st.session_state.rol_temporal:
-            rol_instruction = f"INSTRUCCIÓN DE ROL: Recuerda al modelo que simule el rol: '{st.session_state.rol_temporal}'."
+            instruccion_rol = f"(ACTÚA COMO: {st.session_state.rol_temporal}) "
 
-        full_prompt = f"""
-[CONTEXTO RAG]: {contexto_previo}
-[ROL]: {rol_instruction}
-[MENSAJE USUARIO]: {prompt_to_process}
-"""
+        prompt_completo = f"""
+        [CONTEXTO MEMORIA]: {contexto}
+        [INSTRUCCIÓN]: {instruccion_rol}
+        [USUARIO]: {prompt_final}
+        """
         
-        # 2. UI Updates
-        st.session_state.messages.append({"role": "user", "content": prompt_to_process})
+        # 2. Actualizar UI Usuario
+        st.session_state.messages.append({"role": "user", "content": prompt_final})
         
-        # 3. Generar Respuesta
+        # 3. Generar y Mostrar Respuesta IA
         with st.chat_message("model", avatar="🤖"):
-            with st.spinner(f"{st.session_state.bot_name} está pensando..."):
+            with st.spinner("Pensando..."):
                 try:
-                    response = st.session_state.chat_session.send_message(full_prompt)
-                    respuesta_texto = response.text
-                    st.markdown(respuesta_texto)
+                    resp = st.session_state.chat_session.send_message(prompt_completo)
+                    texto_ai = resp.text
+                    st.markdown(texto_ai)
                     
-                    # 4. Guardar Memoria y Logs
-                    memoria.guardar(st.session_state.user_name, st.session_state.clave_personal, prompt_to_process, respuesta_texto)
-                    GestorBitacora.registrar(st.session_state.user_name, "Usuario", prompt_to_process)
-                    GestorBitacora.registrar(st.session_state.user_name, "IA", respuesta_texto)
+                    # Guardar y Audio
+                    memoria.guardar(st.session_state.user_name, st.session_state.clave_personal, prompt_final, texto_ai)
+                    GestorBitacora.registrar(st.session_state.user_name, "Usuario", prompt_final)
+                    GestorBitacora.registrar(st.session_state.user_name, "IA", texto_ai)
 
-                    # 5. Audio
-                    force_audio = st.session_state.audio_on or (mic_transcription != "")
-                    if force_audio:
-                        GestorAudio.generar_y_reproducir(respuesta_texto, st.session_state.sexo_select)
+                    if st.session_state.audio_on or mic_text:
+                        GestorAudio.generar_y_reproducir(texto_ai, st.session_state.sexo_select)
 
-                    st.session_state.messages.append({"role": "model", "content": respuesta_texto})
-                    
-                    # Limpiar input
-                    st.session_state.prompt_input_text = ""
+                    st.session_state.messages.append({"role": "model", "content": texto_ai})
                     
                 except Exception as e:
-                    st.error(f"Error generando respuesta: {e}. Intenta reiniciar el chat.")
-                    logger.error(f"Error Generación: {e}")
-        
-        # Streamlit hará rerun automático al actualizar session_state
+                    st.error(f"Error: {e}")
 
-    # F. Footer Legal
-    st.markdown("""
-        <style>
-            .footer-link {
-                position: fixed; bottom: 5px; left: 50%; 
-                transform: translateX(-50%); font-size: 0.7em; 
-                color: #94A3B8; cursor: pointer;
-            }
-        </style>
-    """, unsafe_allow_html=True)
+    # Footer
+    with st.expander("📄 Privacidad"):
+        try:
+            with open("POLITICAS_PRIVACIDAD.md", "r", encoding="utf-8") as f:
+                st.markdown(f.read())
+        except FileNotFoundError:
+            st.warning("El archivo de políticas no se encuentra.")
+
+if __name__ == "__main__":
+    main()
