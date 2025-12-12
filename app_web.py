@@ -12,8 +12,8 @@ from streamlit_mic_recorder import mic_recorder
 import logging
 import os
 import base64
-import gspread # 🌟 Necesario para Google Sheets
-from oauth2client.service_account import ServiceAccountCredentials # 🌟 Necesario para Google Sheets
+import gspread 
+from oauth2client.service_account import ServiceAccountCredentials 
 
 # Configuración de Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 # Constantes
 CHROMA_PATH = "chroma_db_memoria"
 Path(CHROMA_PATH).mkdir(exist_ok=True)
-CONTRASENA_MAESTRA_DEFAULT = "bypass_deprecated" # Usamos esto solo para la estructura, ya no es la clave de acceso.
 
 # Configuración de Página (Debe ser lo primero)
 st.set_page_config(page_title="Código Humano AI", page_icon="🤖", layout="centered")
@@ -30,7 +29,6 @@ st.set_page_config(page_title="Código Humano AI", page_icon="🤖", layout="cen
 # --- 2. GESTIÓN DE SECRETOS Y SEGURIDAD ---
 
 def validar_secretos():
-    # 🌟 Mantenemos la verificación solo de las claves esenciales para la IA
     required_secrets = ["GOOGLE_API_KEY", "MODELO_PRINCIPAL"]
     missing = [s for s in required_secrets if s not in st.secrets]
     if missing:
@@ -90,7 +88,6 @@ class GestorMemoria:
         """Recupera contexto relevante para el usuario específico (Blindado)."""
         if not self.vector_store: return ""
         try:
-            # Filtramos estrictamente por el nombre de usuario
             docs = self.vector_store.similarity_search(query, k=k, filter={"user": usuario})
             if not docs: return ""
             contexto_texto = "\n".join([f"- {d.page_content}" for d in docs])
@@ -119,7 +116,6 @@ class GestorAudio:
         except Exception as e:
             logger.error(f"Error generando audio (TTS): {e}")
 
-# 🌟 IMPLEMENTACIÓN FINAL DE BITÁCORA DE GOOGLE SHEETS
 class GestorBitacora:
     """Maneja el log en archivo de texto simple y Google Sheets."""
     
@@ -127,15 +123,13 @@ class GestorBitacora:
     def conectar_sheets():
         """Conexión robusta a Google Sheets usando st.secrets."""
         try:
-            if "gcp_service_account" not in st.secrets:
-                logger.warning("No se encontraron credenciales de GCP para Google Sheets.")
-                return None
+            if "gcp_service_account" not in st.secrets: return None
                 
             creds_info = st.secrets["gcp_service_account"]
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
             client = gspread.authorize(creds)
-            return client.open("Bitacora_IA").sheet1 # Asegúrate que el nombre de tu hoja sea 'Bitacora_IA'
+            return client.open("Bitacora_IA").sheet1 # ¡Asegúrate que el nombre de tu hoja sea 'Bitacora_IA'!
         except Exception as e:
             logger.error(f"Error conectando a Google Sheets: {e}")
             return None
@@ -164,8 +158,6 @@ class GestorBitacora:
 
 IDENTIDAD_ORIGEN = "Soy 'Código Humano AI'. Fui creado con el motor Gemini por Jorge Robles Jr. en diciembre de 2025."
 
-# ... (Las funciones inicializar_session_state y aplicar_estilos se mantienen igual) ...
-
 def inicializar_session_state():
     """Valores por defecto seguros."""
     defaults = {
@@ -177,16 +169,36 @@ def inicializar_session_state():
         "chat_initialized": False,
         "bot_name_session": "Código Humano AI",
         "rol_temporal": "",
-        "clave_personal": "" # Inicialización de la clave personal
+        "clave_personal": "" 
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 def aplicar_estilos():
-    # ... (El código CSS de Dark Mode y Logo se mantiene igual) ...
-    pass # Mantener la llamada a st.markdown(f"""..."""... en main()
+    """Aplica estilos Dark Mode y logo de fondo."""
+    def get_base64_of_bin_file(bin_file):
+        try:
+            with open(bin_file, 'rb') as f: return base64.b64encode(f.read()).decode()
+        except FileNotFoundError: return None
 
+    logo_css = ""
+    if os.path.exists("LOGO.png"):
+        img_b64 = get_base64_of_bin_file("LOGO.png")
+        if img_b64:
+            logo_css = f".stApp::before {{ content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60%; height: 60%; background-image: url('data:image/png;base64,{img_b64}'); background-repeat: no-repeat; background-position: center; background-size: contain; opacity: 0.25; z-index: -1; pointer-events: none; filter: grayscale(100%) brightness(150%); }}"
+
+    st.markdown(f"""
+    <style>
+        {logo_css}
+        .main > div {{ background-color: #1E293B !important; }}
+        .stChatInputContainer {{ 
+            position: fixed; bottom: 0; left: 0; right: 0; padding: 10px; 
+            background-color: #1E293B; z-index: 999; 
+            box-shadow: 0 -5px 15px rgba(0,0,0,0.2); 
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
 def inicializar_modelo():
     """Inicia el modelo de Gemini y establece el saludo inicial."""
@@ -204,10 +216,7 @@ def inicializar_modelo():
             st.session_state.chat_session = model.start_chat(history=[])
             st.session_state.chat_initialized = True
 
-            # Lógica de Saludo Contextual (Se mantiene)
-            memoria = GestorMemoria()
-            # ... (Generación y envío de saludo inicial) ...
-            
+            # Saludo inicial
             saludo_inicial = f"Hola {st.session_state.user_name}! Soy Código Humano AI. Estoy aquí para escucharte, ¿cómo te sientes hoy?"
             
             st.session_state.chat_session.send_message(saludo_inicial)
@@ -228,8 +237,6 @@ def main():
     # A. Flujo de Login (Login Simplificado con Clave Personal y Disclaimer)
     if not st.session_state.logged_in:
         
-        # ... (Implementación del Login Seguro Simplificado) ...
-        # (Este bloque se mantiene con el Disclamer y la validación de Clave Personal)
         st.markdown("<div style='display: flex; justify-content: center; flex-direction: column; align-items: center; text-align: center;'>", unsafe_allow_html=True)
         if os.path.exists("LOGO.png"): st.image("LOGO.png", width=400)
         
@@ -238,117 +245,4 @@ def main():
             user = st.text_input("👤 Tu Nombre (Clave de Sesión)", key="user_name_input")
             bot = st.text_input("🤖 Nombre del Modelo", key="bot_name_input", value=st.session_state.bot_name)
             
-            clave_personal = st.text_input("✨ Tu Palabra Clave Personal", 
-                                        type="password", 
-                                        help="Esta clave es la única que protege tu historial de conversación.",
-                                        key="clave_personal_input")
-            
-            # --- DESCARGO DE RESPONSABILIDAD CRÍTICO PARA MITIGAR RIESGOS ---
-            st.warning("""
-            **⚠️ Advertencia de Seguridad:**
-            Usted es el único responsable de la seguridad de su Palabra Clave. Si elige una clave fácil de adivinar, 
-            su historial puede ser accedido por terceros que conozcan su Nombre.
-            """)
-            
-            if st.form_submit_button("Iniciar Chat"):
-                if user and bot and clave_personal:
-                    st.session_state.update({
-                        "logged_in": True, 
-                        "user_name": user.strip(), 
-                        "bot_name": bot,
-                        "chat_initialized": False,
-                        "clave_personal": clave_personal 
-                    })
-                    st.rerun()
-                else:
-                    st.error("Por favor, completa tu Nombre y tu Palabra Clave Personal para ingresar.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # B. Interfaz Principal (Contenido del Chat)
-    inicializar_modelo()
-    memoria = GestorMemoria()
-    
-    # ... (Lógica de Sidebar y Chat Window) ...
-
-    # D. Captura de Inputs
-    with st.form(key="chat_input_form_final", clear_on_submit=True):
-        col1, col2 = st.columns([0.5, 7.5]) 
-        
-        with col1: 
-            mic_data = mic_recorder(start_prompt="🎤", stop_prompt="⏸️", key="mic_input_component_final")
-            mic_transcription = mic_data.get('text', '') if mic_data and 'text' in mic_data else ''
-
-        with col2: 
-            prompt = st.text_input("Escribe tu mensaje...", key="prompt_input_text", label_visibility="collapsed") 
-
-        st.form_submit_button("Enviar", label_visibility="collapsed")
-
-        # E. Procesamiento del Mensaje
-        prompt_to_process = prompt or mic_transcription or ""
-        
-        if prompt_to_process:
-            
-            # 1. Construcción del Prompt (RAG + Rol)
-            contexto_previo = memoria.recuperar(st.session_state.user_name, prompt_to_process, k=5)
-            
-            rol_instruction = ""
-            if st.session_state.rol_temporal:
-                rol_instruction = f"INSTRUCCIÓN DE ROL: Recuerda al modelo que simule el rol: '{st.session_state.rol_temporal}'."
-
-            full_prompt = f"""
-[CONTEXTO RAG]: {contexto_previo}
-[ROL]: {rol_instruction}
-[MENSAJE USUARIO]: {prompt_to_process}
-"""
-            
-            # 2. Mostrar mensaje usuario en UI (Se hace antes de la llamada a Gemini)
-            st.session_state.messages.append({"role": "user", "content": prompt_to_process})
-            
-            # 3. Generar Respuesta IA
-            with st.chat_message("model", avatar="🤖"):
-                with st.spinner(f"{st.session_state.bot_name} está pensando..."):
-                    try:
-                        response = st.session_state.chat_session.send_message(full_prompt)
-                        respuesta_texto = response.text
-                        st.markdown(respuesta_texto)
-                        
-                        # 4. Guardar Memoria y Logs (¡Implementación Completa!)
-                        memoria.guardar(st.session_state.user_name, st.session_state.clave_personal, prompt_to_process, respuesta_texto)
-                        GestorBitacora.registrar(st.session_state.user_name, "Usuario", prompt_to_process)
-                        GestorBitacora.registrar(st.session_state.user_name, "IA", respuesta_texto)
-
-                        # 5. Generar Audio
-                        force_audio = st.session_state.audio_on or (mic_transcription != "")
-                        if force_audio:
-                            GestorAudio.generar_y_reproducir(respuesta_texto, st.session_state.sexo_select)
-
-                        st.session_state.messages.append({"role": "model", "content": respuesta_texto})
-                        
-                    except Exception as e:
-                        st.error(f"Error generando respuesta: {e}. Intenta reiniciar el chat.")
-                        logger.error(f"Error Generación: {e}")
-            
-            st.rerun() # Forzar rerun para limpiar el input
-
-    # F. ENLACE DE POLÍTICAS Y AVISO DE PRIVACIDAD (Pie de página)
-    st.markdown("""
-        <style>
-            .footer-link {
-                position: fixed; bottom: 5px; left: 50%; 
-                transform: translateX(-50%); font-size: 0.7em; 
-                color: #94A3B8; cursor: pointer;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    with st.expander("Políticas y Aviso de Privacidad"):
-        try:
-            with open("POLITICAS_PRIVACIDAD.md", "r", encoding="utf-8") as f:
-                st.markdown(f.read())
-        except FileNotFoundError:
-            st.warning("El archivo 'POLITICAS_PRIVACIDAD.md' no se encuentra. Crea el archivo.")
-
-if __name__ == "__main__":
-    main()
+            clave_personal = st.text_input("✨ Tu Palabra Clave Personal",
