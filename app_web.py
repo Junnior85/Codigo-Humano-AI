@@ -284,7 +284,8 @@ def main():
     with st.sidebar:
         st.title("Código Humano AI") 
         st.subheader("Personalidad de IA")
-        st.session_state.bot_name_session = st.text_input("🤖 Nombre personalizado", value=st.session_state.bot_name, key="bot_name_session")
+        st.text_input("🤖 Nombre personalizado", value=st.session_state.bot_name, key="bot_name_session")
+        st.session_state.bot_name = st.session_state.bot_name_session # Actualizamos el nombre principal con el valor del input
         st.selectbox("🧑 Género", ["Masculino", "Femenino", "No binario"], key="genero_select", index=1 if st.session_state.get('genero_select')=='Femenino' else 0)
         st.selectbox("🎙️ Voz", ["Femenino (España)", "Masculino (México)"], key="sexo_select", index=0 if st.session_state.get('sexo_select')=='Femenino (España)' else 1)
         st.selectbox("🎂 Edad percibida", ["Adulto Joven", "Maduro"], key="edad_select", index=0)
